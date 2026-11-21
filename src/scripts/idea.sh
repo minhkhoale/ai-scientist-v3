@@ -554,6 +554,7 @@ from src.investigation.skill_scope import (  # noqa: E402
     validate_skill_set,
 )
 from src.investigation.harness_feedback import summarize_recent_attempts  # noqa: E402
+from src.orchestrator.idea_commitment import summarize_prediction_calibration  # noqa: E402
 from src.investigation.files import load_instructions, relative_display_path  # noqa: E402
 
 skills_src = script_dir / "src" / "agents" / "skills"
@@ -662,6 +663,7 @@ extra = {
     "BEST_MANIFEST_FILE": best_manifest_display,
     "RECENT_IDEAS_SUMMARY": summarize_jsonl_entries(recent_ideas, ("cycle_index", "idea_id", "title")),
     "RECENT_ATTEMPTS_SUMMARY": summarize_recent_attempts(results_dir / "task", recent_attempts),
+    "PREDICTION_CALIBRATION_SUMMARY": summarize_prediction_calibration(results_dir),
     "GLOBAL_MEMORY_MD_FILE": relative_display_path(global_memory_md, base_dir=base_dir),
     "GLOBAL_MEMORY_JSONL_FILE": relative_display_path(global_memory_jsonl, base_dir=base_dir),
     "GLOBAL_MEMORY_RECENT_SUMMARY": summarize_jsonl_entries(
@@ -723,6 +725,7 @@ sys.path.insert(0, str(script_dir))
 
 from src.orchestrator import state as state_store
 from src.investigation.harness_feedback import summarize_recent_attempts
+from src.orchestrator.idea_commitment import summarize_prediction_calibration
 from src.orchestrator.idea_bundle import MAX_SOURCE_PATTERN_CHARS
 from src.investigation.files import load_instructions, relative_display_path
 
@@ -826,6 +829,7 @@ extra = {
     "BEST_MANIFEST_FILE": best_manifest_display,
     "RECENT_IDEAS_SUMMARY": summarize_jsonl_entries(recent_ideas, ("cycle_index", "idea_id", "title")),
     "RECENT_ATTEMPTS_SUMMARY": summarize_recent_attempts(results_dir / "task", recent_attempts),
+    "PREDICTION_CALIBRATION_SUMMARY": summarize_prediction_calibration(results_dir),
     "GLOBAL_MEMORY_MD_FILE": relative_display_path(global_memory_md, base_dir=base_dir),
     "GLOBAL_MEMORY_JSONL_FILE": relative_display_path(global_memory_jsonl, base_dir=base_dir),
     "GLOBAL_MEMORY_RECENT_SUMMARY": summarize_jsonl_entries(

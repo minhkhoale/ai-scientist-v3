@@ -308,6 +308,7 @@ def build_parallel_worker_command(
         f"execution.run_timeout_grace_seconds={cfg.execution.run_timeout_grace_seconds}",
         f"execution.max_program_evals_per_attempt={cfg.execution.max_program_evals_per_attempt}",
         f"execution.harness_evaluated_attempts={'true' if cfg.execution.harness_evaluated_attempts else 'false'}",
+        f"execution.require_preregistration={'true' if cfg.execution.require_preregistration else 'false'}",
         f"execution.gpu_evaluation={'true' if cfg.execution.gpu_evaluation else 'false'}",
         f"execution.isolate_worker_memory={'true' if cfg.execution.isolate_worker_memory else 'false'}",
         f"logging.format={cfg.logging.format}",

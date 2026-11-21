@@ -494,6 +494,8 @@ def _run_campaign(
     attempt_fn: Callable[..., RunAttemptResult] = _fake_attempt,
     log_event_fn: Callable[..., None] | None = None,
     finalize_on_exit: bool = True,
+    find_best_fn: Callable[..., Any] = lambda _dir: None,
+    require_preregistration: bool = False,
 ) -> int:
     results_dir = tmp_path / "run"
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -506,6 +508,7 @@ def _run_campaign(
     cfg.execution.max_idea_cycles = max_idea_cycles
     cfg.execution.max_idea_generation_attempts = max_idea_generation_attempts
     cfg.paper.enabled = False
+    cfg.execution.require_preregistration = require_preregistration
     cfg.versioning.finalize_on_exit = finalize_on_exit
 
     kwargs: dict[str, Any] = dict(
@@ -538,7 +541,7 @@ def _run_campaign(
         run_single_attempt_fn=attempt_fn,
         run_paper_generation_fn=lambda *a, **k: None,
         reconcile_legacy_idea_local_memory_fn=lambda **k: None,
-        find_best_program_in_experiment_fn=lambda _dir: None,
+        find_best_program_in_experiment_fn=find_best_fn,
         read_json_fn=_READ_JSON,
         utc_now_fn=lambda: "2026-01-01T00:00:00Z",
     )
@@ -792,3 +795,101 @@ def test_parallel_paper_failure_is_checkpointed_after_failure_event(tmp_path: Pa
     assert calls[-1]["event"] == "paper_generation_failed"
     assert calls[-1]["final"] is True
     assert lifecycle.index(("event", "paper_generation_failed")) < lifecycle.index(("checkpoint", "final"))
+
+
+_REGISTRATION = {
+    "prediction": {"metric": "combined_score", "expected_delta": 0.05, "confidence": 0.7},
+    "falsifier": {
+        "metric": "combined_score",
+        "refuted_if": "<=",
+        "threshold": 0.5,
+        "description": "no gain over 0.5",
+    },
+}
+
+
+def _registered_idea_generation(**kwargs: Any) -> IdeaGenerationResult:
+    result = _fake_idea_generation(**kwargs)
+    path = Path(kwargs["output_dir"]) / "idea_bundle.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **_REGISTRATION}), encoding="utf-8")
+    return result
+
+
+def _ledger(root: Path) -> list[dict[str, Any]]:
+    path = root / "run" / "prediction_ledger.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_campaign_writes_commitment_and_ledger_for_registered_idea(tmp_path: Path) -> None:
+    experiment = tmp_path / "exp"
+    experiment.mkdir()
+    attempt = lambda **kw: RunAttemptResult(output="o", exit_code=0, experiment_dir=experiment)
+    best = lambda _dir: (tmp_path / "prog", "main.py", 0.4, True)
+    assert _run_campaign(
+        tmp_path, idea_generation_fn=_registered_idea_generation, attempt_fn=attempt, find_best_fn=best
+    ) == 0
+    [row] = _ledger(tmp_path)
+    assert row["falsifier_outcome"] == "refuted" and row["actual_score"] == 0.4
+    assert row["commitment_intact"] is True
+    [idea_dir] = list((tmp_path / "run" / "ideas").iterdir())
+    assert json.loads((idea_dir / "commitment.json").read_text())["registered"] is True
+    attempts = [json.loads(l) for l in (tmp_path / "run" / "attempts_history.jsonl").read_text().splitlines()]
+    assert attempts[0]["falsifier_outcome"] == "refuted" and attempts[0]["commitment_intact"] is True
+
+
+def test_campaign_flags_bundle_edited_during_attempt(tmp_path: Path) -> None:
+    def tampering_attempt(**kwargs: Any) -> RunAttemptResult:
+        [idea_dir] = list((tmp_path / "run" / "ideas").iterdir())
+        path = idea_dir / "idea_bundle.json"
+        bundle = json.loads(path.read_text())
+        bundle["falsifier"]["threshold"] = 0.0
+        path.write_text(json.dumps(bundle))
+        return RunAttemptResult(output="o", exit_code=0, experiment_dir=None)
+
+    _run_campaign(tmp_path, idea_generation_fn=_registered_idea_generation, attempt_fn=tampering_attempt)
+    [row] = _ledger(tmp_path)
+    assert row["commitment_intact"] is False
+    assert row["falsifier"]["threshold"] == 0.5  # scored against the committed falsifier
+
+
+def test_campaign_unregistered_idea_is_labelled_and_require_flag_rejects_it(tmp_path: Path) -> None:
+    assert _run_campaign(tmp_path / "open") == 0
+    assert _ledger(tmp_path / "open")[0]["falsifier_outcome"] == "unregistered"
+    # with the flag on, the unregistered bundle is rejected and no attempt runs
+    assert _run_campaign(tmp_path / "strict", require_preregistration=True) != 0
+    assert not (tmp_path / "strict" / "run" / "prediction_ledger.jsonl").exists()
+
+
+def test_shell_renders_prediction_calibration_from_ledger(tmp_path: Path) -> None:
+    task = script_tests._write_task_dir(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script_tests._write_freeform_verification_agent(bin_dir)
+    results = tmp_path / "results"
+    results.mkdir()
+    row = {
+        "prediction": _REGISTRATION["prediction"],
+        "falsifier_outcome": "refuted",
+        "commitment_intact": True,
+    }
+    (results / "prediction_ledger.jsonl").write_text(json.dumps(row) + "\n")
+    output_dir = tmp_path / "idea"
+    environment = {
+        **os.environ,
+        "HEADLESS_BIN": str(bin_dir / "headless"),
+        "WRAPPER_PYTHON": sys.executable,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+    }
+    subprocess.run(
+        [
+            "bash", str(script_tests._script_path("idea.sh")),
+            "--agent", "codex", "--task-dir", str(task),
+            "--results-dir", str(results), "--output-dir", str(output_dir),
+            "--cycle-index", "1", "--harness-evaluated-attempt",
+        ],
+        env=environment, capture_output=True, text=True, timeout=20,
+    )
+    prompt = (output_dir / "idea_prompt.md").read_text()
+    assert "## Prediction Calibration" in prompt
+    assert "Brier score 0.490" in prompt and "0% survived" in prompt
+    assert "{{PREDICTION_CALIBRATION_SUMMARY}}" not in prompt

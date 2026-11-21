@@ -320,6 +320,7 @@ def _dict_to_config(d: dict) -> InvestigationConfig:
             harness_evaluated_attempts=bool(
                 execution_d.get("harness_evaluated_attempts", False)
             ),
+            require_preregistration=bool(execution_d.get("require_preregistration", False)),
             gpu_evaluation=bool(execution_d.get("gpu_evaluation", False)),
             run_timeout_seconds=int(execution_d.get("run_timeout_seconds", 21600)),
             harness_evaluation_timeout_seconds=execution_d.get(

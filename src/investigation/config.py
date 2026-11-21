@@ -143,6 +143,15 @@ class ExecutionConfig:
             )
         },
     )
+    require_preregistration: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Reject idea bundles that lack a prediction and a measurable falsifier, so every "
+                "attempt is scored against a hash-committed prediction"
+            )
+        },
+    )
     gpu_evaluation: bool = field(
         default=False,
         metadata={

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from src.orchestrator import rubrics, state as state_store
+from src.orchestrator import idea_commitment, rubrics, state as state_store
 
 logger = logging.getLogger(__name__)
 from .agent_selection import resolve_agent_model, resolve_cycle_agent
@@ -292,6 +293,7 @@ def run_cycles_and_finalize(
                         cycle_idx,
                         read_json_fn,
                         require_harness_verification=cfg.execution.harness_evaluated_attempts,
+                        require_preregistration=cfg.execution.require_preregistration,
                         harness_incumbent_score=harness_incumbent_score,
                     )
                 except IdeaArtifactsError as exc:
@@ -411,6 +413,10 @@ def run_cycles_and_finalize(
         rubrics_file = idea_dir / "target_rubrics.json"
         state_store.write_json(idea_file, idea_bundle)
         state_store.write_json(rubrics_file, idea_bundle["target_rubrics"])
+        # Commit the hypothesis, rubrics, prediction and falsifier before the attempt runs.
+        commitment_file = idea_dir / "commitment.json"
+        commitment = idea_commitment.build_commitment(idea_bundle, committed_at=utc_now_fn())
+        state_store.write_json(commitment_file, commitment)
         canonical_idea_log_path = idea_dir / "idea_generation_wrapper_output.log"
         if idea_log_path.is_file():
             copy_output_log_no_follow(idea_log_path, canonical_idea_log_path)
@@ -639,6 +645,27 @@ def run_cycles_and_finalize(
             if isinstance(metrics, dict):
                 attempt_record["metrics"] = metrics
 
+        # Re-read the committed bundle from disk: the attempt agent could have edited it.
+        try:
+            on_disk_bundle = json.loads(idea_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            on_disk_bundle = None
+        commitment_intact = isinstance(
+            on_disk_bundle, dict
+        ) and idea_commitment.verify_commitment(on_disk_bundle, commitment)
+        ledger_row = idea_commitment.ledger_record(
+            idea_bundle,
+            cycle_index=cycle_idx,
+            attempt_id=attempt_id,
+            commitment=commitment,
+            commitment_intact=commitment_intact,
+            metrics=metrics,
+            combined_score=evaluated_score,
+            baseline_score=best_score_before,
+        )
+        attempt_record["commitment_intact"] = commitment_intact
+        attempt_record["falsifier_outcome"] = ledger_row["falsifier_outcome"]
+        state_store.append_jsonl(results_dir / idea_commitment.LEDGER_FILE, ledger_row)
         state_store.append_jsonl(state_store.attempts_history_path(results_dir), attempt_record)
         state_store.save_outer_state(results_dir, outer_state)
         checkpoint_fn(
