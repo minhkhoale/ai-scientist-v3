@@ -68,7 +68,7 @@ def run_proposal(*, goal: str, out_dir: Path, corpus: Sequence[LiteratureRecord]
         raw = _read(output) if output.exists() else run_role_fn(name,
             render_role(name,context,prompt_dir=profile.prompt_dir,**slots),
             out_dir=directory,agent=generator,timeout_seconds=settings.round.role_timeout_seconds,container=None)
-        _write_once(completed,raw)
+        if raw is not None: _write_once(completed,raw)
         return raw
 
     plan_path = out_dir/'plan.json'

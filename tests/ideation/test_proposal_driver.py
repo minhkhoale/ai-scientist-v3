@@ -91,3 +91,12 @@ def test_resume_after_snapshot_before_stop_decision(tmp_path, monkeypatch):
     run_proposal(**kw)
     assert json.loads((tmp_path/'status.json').read_text())['rounds_run']==2
     assert not any('0003' in str(path) for _,path in calls)
+
+
+def test_role_script_accepts_every_role_output_file():
+    import re
+    from pathlib import Path
+    from src.ideation.roles import OUTPUT_FILE
+    script = (Path(__file__).parents[2] / 'src/scripts/ideation_role.sh').read_text()
+    allowed = set(re.search(r'case "\$EXPECTED_OUTPUT" in ([^)]+)\)', script)[1].split('|'))
+    assert set(OUTPUT_FILE.values()) <= allowed
