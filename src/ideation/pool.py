@@ -27,6 +27,10 @@ class Review:
     summary: str
     citations: tuple[str,...]
     rejected_citations: int
+    kind: str = 'full'
+    assumptions: tuple[dict, ...] = ()
+    weakest: str = ''
+    kill_experiment: str = ''
 
 
 @dataclass
@@ -59,6 +63,7 @@ class PoolState:
     elo: dict[str,float] = field(default_factory=dict)
     matches_played: dict[str,int] = field(default_factory=dict)
     reviews: dict[str,Review] = field(default_factory=dict)
+    verifications: dict[str,Review] = field(default_factory=dict)
     outcomes: list[Outcome] = field(default_factory=list)
     feedback: list[dict] = field(default_factory=list)
 
@@ -88,7 +93,9 @@ class PoolStore:
             self._append('candidates',{'event':'status','candidate_id':candidate_id,'status':status,'reason':reason})
 
     def add_review(self, review: Review):
-        if review.candidate_id not in self.load().reviews: self._append('reviews',asdict(review))
+        state = self.load()
+        reviews = state.verifications if review.kind == 'verification' else state.reviews
+        if review.candidate_id not in reviews: self._append('reviews',asdict(review))
 
     def add_match(self, match: Match):
         if not any((r['cycle'],r['match_index'])==(match.cycle,match.match_index) for r in self._rows('matches')):
@@ -112,7 +119,11 @@ class PoolStore:
             state.candidates[candidate.id]=candidate; state.status[candidate.id]='draft'
             state.elo[candidate.id]=1200.0; state.matches_played[candidate.id]=0
         for row in self._rows('reviews'):
-            row['citations']=tuple(row['citations']); review=Review(**row); state.reviews[review.candidate_id]=review
+            row['citations']=tuple(row['citations'])
+            row['assumptions']=tuple(row.get('assumptions', ()))
+            review=Review(**row)
+            reviews = state.verifications if review.kind == 'verification' else state.reviews
+            reviews[review.candidate_id]=review
         seen = set()
         for row in self._rows('matches'):
             key = row['cycle'],row['match_index']

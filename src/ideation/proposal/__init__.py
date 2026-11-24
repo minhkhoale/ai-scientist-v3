@@ -1,0 +1,1 @@
+"""Literature-only research proposals."""

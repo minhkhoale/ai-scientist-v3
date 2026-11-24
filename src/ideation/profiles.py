@@ -22,3 +22,8 @@ def execution_text(candidate: Candidate) -> str:
 PROFILES: Mapping[str, Profile] = {
     'execution': Profile('execution', DEFAULT_PROMPT_DIR, parse_candidate, execution_text, ('literature',)),
 }
+
+from .proposal.schema import parse_proposal_candidate
+
+PROFILES['proposal'] = Profile('proposal', DEFAULT_PROMPT_DIR.parent/'proposal',
+    parse_proposal_candidate, lambda c: c.bundle['title']+' '+c.bundle['statement'], ('literature','debate'))
