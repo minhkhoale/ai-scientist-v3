@@ -15,6 +15,7 @@ from .literature.corpus import load_corpus, _atomic_write
 from .literature.retrieval import Bm25Index, render_pack, pack_ids
 from .similarity import find_duplicate, text_similarity
 from .roles import RoleContext, RoleOutputError, render_role, parse_candidate, parse_review, parse_verdict, parse_feedback, OUTPUT_FILE
+from .profiles import Profile, PROFILES
 from .role_runner import RoleAgent, ContainerOptions, run_role
 
 
@@ -58,7 +59,8 @@ def _text(candidate: Candidate) -> str:
 def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[LiteratureRecord],
                          ctx_base: RoleContext, settings: RoundSettings, generator: RoleAgent,
                          judge: RoleAgent, run_role_fn, work_dir: Path,
-                         history_titles: Mapping[str,str], log_event_fn) -> Candidate | None:
+                         history_titles: Mapping[str,str], log_event_fn, profile: Profile = PROFILES['execution']) -> Candidate | None:
+    _text = profile.candidate_text
     root = work_dir/'rounds'/f'{cycle:04d}'
     index = Bm25Index(corpus)
     state = store.load()
@@ -77,7 +79,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         ctx = replace(context,literature_pack=render_pack(records),allowed_citations=pack_ids(records))
         output = directory/OUTPUT_FILE[name]
         # An agent may have completed the file before the host was interrupted.
-        raw = _read(output) if output.exists() else run_role_fn(name,render_role(name,ctx,**slots),out_dir=directory,
+        raw = _read(output) if output.exists() else run_role_fn(name,render_role(name,ctx,prompt_dir=profile.prompt_dir,**slots),out_dir=directory,
                agent=judge if name=='reflect' or name.startswith('judge_') else generator,
                timeout_seconds=settings.role_timeout_seconds,container=None)
         _write_once(completed,raw)
@@ -89,7 +91,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         if saved is not None: return store.load().candidates.get(saved.get('id')) if saved.get('accepted') else None
         try:
             records = index.search(context.task_goal,settings.pack_k_generate)
-            candidate = parse_candidate(raw,cycle=cycle,strategy=strategy,allowed=pack_ids(records))
+            candidate = profile.parse_candidate(raw,cycle=cycle,strategy=strategy,allowed=pack_ids(records))
             if parents: candidate.parent_ids = tuple(parents)
         except RoleOutputError:
             _write_once(decision,{'accepted':False}); return None

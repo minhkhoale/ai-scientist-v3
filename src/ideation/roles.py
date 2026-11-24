@@ -28,9 +28,12 @@ class RoleContext:
     reality: str
 
 
-def render_role(role: RoleName, ctx: RoleContext, **slots: str) -> str:
+DEFAULT_PROMPT_DIR = Path(__file__).parents[1]/'prompts'/'ideation'
+
+
+def render_role(role: RoleName, ctx: RoleContext, *, prompt_dir: Path = DEFAULT_PROMPT_DIR, **slots: str) -> str:
     if role not in OUTPUT_FILE: raise ValueError(f'unknown role {role}')
-    text = (Path(__file__).parents[1]/'prompts'/'ideation'/f'{role}.md').read_text()
+    text = (prompt_dir/f'{role}.md').read_text()
     values = {key.upper():str(value) for key,value in asdict(ctx).items()}
     values.update(slots)
     # Substitute once: literature and agent data must never become template code.
