@@ -33,12 +33,12 @@ def build_corpus(out_dir: Path, specs: Sequence[str], *, require_nonempty: bool,
         manifest = json.loads(manifest_path.read_text())
         if manifest['sources'] != list(specs):
             raise LiteratureSourceError('corpus already built from different sources')
-        records = load_corpus(out_dir)
-        if require_nonempty and not records:
+        existing_records = load_corpus(out_dir)
+        if require_nonempty and not existing_records:
             raise LiteratureSourceError('empty corpus: '+', '.join(specs))
         return manifest_path
     fetchers = fetchers or {'folder':fetch_folder,'arxiv':fetch_arxiv,'conference':fetch_conference}
-    counts = {}; errors = {}; records = {}; arxiv_ids = set()
+    counts = {}; errors = {}; records: dict[str, LiteratureRecord] = {}; arxiv_ids = set()
     for raw in specs:
         spec = parse_source_spec(raw)
         try:

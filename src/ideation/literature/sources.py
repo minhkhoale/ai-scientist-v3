@@ -111,7 +111,7 @@ def _record(row: dict, spec: SourceSpec) -> LiteratureRecord:
 
 def _bib_fields(text: str) -> list[dict]:
     """Read balanced brace or quoted fields, retaining nested TeX title text."""
-    rows = []
+    rows: list[dict] = []
     for entry in re.split(r'@\w+\s*\{',text)[1:]:
         row = {}
         pos = entry.find(',')+1
@@ -143,7 +143,7 @@ def fetch_folder(spec: SourceSpec) -> list[LiteratureRecord]:
     if path is None or not path.is_dir():
         raise LiteratureSourceError(f'{path}: folder does not exist')
     records = sorted(path.rglob('records.json'))
-    rows = []
+    rows: list[dict] = []
     if records:
         for file in records:
             value = json.loads(file.read_text())
@@ -184,7 +184,7 @@ def fetch_arxiv(spec: SourceSpec, *, http_get: Callable[[str],bytes] = http_get,
 
 def fetch_conference(spec: SourceSpec, *, http_get: Callable[[str],bytes] = http_get,
                      sleep: Callable[[float],None] = time.sleep) -> list[LiteratureRecord]:
-    result = []
+    result: list[LiteratureRecord] = []
     for year in spec.years:
         offset = 0
         while len(result)<spec.max_results:

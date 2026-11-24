@@ -32,7 +32,8 @@ def select_pair(eligible: Sequence[Candidate], state: PoolState, rng: random.Ran
             weights = [math.exp(-abs(state.elo[a]-state.elo[b])/200)*max(1-similarity(a,b),.05) for a,b in pairs]
             return rng.choices(pairs,weights=weights,k=1)[0]
     top = sorted(ids,key=lambda id:(-state.elo[id],id))[:max(2,(len(ids)+1)//2)]
-    return tuple(rng.sample(top,2))
+    a, b = rng.sample(top,2)
+    return a, b
 
 
 def select_mode(state: PoolState, a: str, b: str) -> Literal['pairwise','debate']:
@@ -40,13 +41,14 @@ def select_mode(state: PoolState, a: str, b: str) -> Literal['pairwise','debate'
 
 
 def reality_calibration(outcomes: Sequence[Outcome]) -> dict[str,float | int | None]:
-    rows = [o for o in outcomes if o.combined_score is not None and o.baseline_score is not None
+    rows = [(o.elo_at_selection, o.combined_score-o.baseline_score)
+            for o in outcomes if o.combined_score is not None and o.baseline_score is not None
             and all(math.isfinite(v) for v in (o.combined_score,o.baseline_score,o.elo_at_selection))]
     n = len(rows)
     if n<3: return {'n':n,'spearman':None}
     def ranks(values):
         return [1+sum(x<v for x in values)+(sum(x==v for x in values)-1)/2 for v in values]
-    a = ranks([o.elo_at_selection for o in rows]); b = ranks([o.combined_score-o.baseline_score for o in rows])
+    a = ranks([elo for elo, _ in rows]); b = ranks([delta for _, delta in rows])
     mean = (n+1)/2
     denominator = math.sqrt(sum((x-mean)**2 for x in a)*sum((x-mean)**2 for x in b))
     return {'n':n,'spearman':sum((x-mean)*(y-mean) for x,y in zip(a,b))/denominator if denominator else None}
