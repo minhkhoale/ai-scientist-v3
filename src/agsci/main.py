@@ -26,6 +26,7 @@ Commands:
   investigate  Run the investigation loop alone: agsci investigate [HYDRA_OVERRIDES...]
   doctor       Check this host for the tools, images, and GPUs the pipeline needs
   inspect      Build and serve the run inspector web UI: agsci inspect [build|start|dev]
+  literature   Build a frozen literature corpus: agsci literature build --help
   review       Review a paper PDF with the OpenAI-backed reviewer: agsci review <paper.pdf> [--output review.json]
 
 Run `agsci <command> --help` for that command's options.
@@ -69,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
         from src.agsci import inspector
 
         return inspector.main(rest)
+    if command == "literature":
+        from src.ideation.literature import corpus
+
+        return corpus.main(rest)
     if command == "review":
         from src.agsci import review
 
