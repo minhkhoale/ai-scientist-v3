@@ -73,7 +73,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         directory = root/step
         completed = directory/'completed.json'
         if completed.exists(): return _read(completed)
-        records = index.search(query or context.task_goal,settings.pack_k_generate if name=='generate' else settings.pack_k_reflect)
+        records = index.search(query or context.task_goal,settings.pack_k_generate if name=='generate' or name.startswith('evolve_') else settings.pack_k_reflect)
         ctx = replace(context,literature_pack=render_pack(records),allowed_citations=pack_ids(records))
         output = directory/OUTPUT_FILE[name]
         # An agent may have completed the file before the host was interrupted.
@@ -94,12 +94,12 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         except RoleOutputError:
             _write_once(decision,{'accepted':False}); return None
         state = store.load()
-        # Same-cycle persistence means a crash happened between append and decision.
+        # Re-evaluate drafts after a crash between candidate append and status append.
         if candidate.id in state.candidates:
-            accepted = state.candidates[candidate.id].cycle==cycle and state.status[candidate.id] not in ('executed','invalid','rejected','retired')
-            _write_once(decision,{'id':candidate.id,'accepted':accepted})
-            return state.candidates[candidate.id] if accepted else None
-        existing = {id:_text(c) for id,c in state.candidates.items()}
+            if state.candidates[candidate.id].cycle != cycle or state.status[candidate.id] in ('executed','invalid','rejected','retired'):
+                _write_once(decision,{'id':candidate.id,'accepted':False})
+                return None
+        existing = {id:_text(c) for id,c in state.candidates.items() if id != candidate.id}
         existing.update({'history:'+id:title for id,title in history_titles.items()})
         duplicate = find_duplicate(_text(candidate),existing,threshold=settings.dedup_threshold)
         # History has titles only; compare titles separately as well.
@@ -162,7 +162,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
             candidate = ingest(raw,step,strategy,parents)
             if candidate: reflect(candidate,'reflect_'+candidate.id,child=True)
     if settings.metareview_every>0 and cycle%settings.metareview_every==0:
-        raw = role('metareview','metareview',OUTCOMES=json.dumps([asdict(o) for o in store.load().outcomes]))
+        raw = role('metareview','metareview',OUTCOMES=json.dumps({'outcomes':[asdict(o) for o in store.load().outcomes], 'reviews':[asdict(r) for r in store.load().reviews.values()]}))
         if not any(r.get('kind')=='metareview' and r.get('cycle')==cycle for r in store.load().feedback):
             try: store.add_feedback({'kind':'metareview','cycle':cycle,**parse_feedback(raw)})
             except RoleOutputError: pass
@@ -175,6 +175,7 @@ def make_tournament_idea_generation(cfg, *, corpus_dir: Path | None, run_role_fn
     corpus = load_corpus(corpus_dir) if corpus_dir else []
     def generate(**kwargs):
         results_dir = Path(kwargs['results_dir']); cycle = kwargs['cycle_index']; output_dir = Path(kwargs['output_dir'])
+        reconcile_outcomes(results_dir)
         store = PoolStore(results_dir/'ideation')
         selections = [r for r in store.load().feedback if r.get('kind')=='selection' and r['cycle']==cycle]
         if kwargs.get('validation_feedback'):
@@ -225,3 +226,22 @@ def record_outcome(results_dir: Path, *, idea_id: str, cycle: int, attempt_id: s
     elo = selections[-1]['elo'] if selections else state.elo[idea_id]
     store.add_outcome(Outcome(idea_id,cycle,attempt_id,elo,combined_score,baseline_score,attempt_pass,falsifier_outcome))
     store.mark(idea_id,'executed','attempt:'+attempt_id)
+
+
+def reconcile_outcomes(results_dir: Path) -> None:
+    """Repair the ledger→pool crash window before any next-round selection."""
+    store = PoolStore(results_dir / 'ideation')
+    if not store.root.exists():
+        return
+    state = store.load()
+    known = {o.attempt_id for o in state.outcomes}
+    attempts = {r.get('attempt_id'):r for r in _rows(state_store.attempts_history_path(results_dir))}
+    for row in _rows(results_dir / 'prediction_ledger.jsonl'):
+        if row.get('idea_id') not in state.candidates or row.get('attempt_id') in known:
+            continue
+        attempt = attempts.get(row['attempt_id'], {})
+        record_outcome(results_dir, idea_id=row['idea_id'], cycle=row['cycle_index'],
+                       attempt_id=row['attempt_id'], combined_score=row.get('actual_score'),
+                       baseline_score=row.get('baseline_score'),
+                       attempt_pass=row.get('attempt_pass', attempt.get('rubric_overall_pass', False)),
+                       falsifier_outcome=row['falsifier_outcome'])

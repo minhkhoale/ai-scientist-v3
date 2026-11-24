@@ -29,9 +29,9 @@ def test_folder_markdown_only(tmp_path):
 
 
 def test_folder_bib_only(tmp_path):
-    (tmp_path/'references.bib').write_text('@article{p, title={A {Nested} Title}, abstract={An abstract}, year={2025}, url={https://paper}}')
+    (tmp_path/'references.bib').write_text('@article{p, title={A {Nested} Title}, abstract={An abstract}, author={Alice and Bob}, year={2025}, url={https://paper}}')
     r=fetch_folder(parse_source_spec(f'folder:{tmp_path}'))[0]
-    assert r.title=='A Nested Title' and r.abstract=='An abstract' and r.year==2025
+    assert r.title=='A Nested Title' and r.abstract=='An abstract' and r.year==2025 and r.authors==('Alice','Bob')
 
 
 def test_folder_pdfs_only_errors(tmp_path):

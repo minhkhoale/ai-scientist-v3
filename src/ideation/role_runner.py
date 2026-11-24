@@ -56,7 +56,7 @@ def run_role(role: RoleName, prompt: str, *, out_dir: Path, agent: RoleAgent,
         if value: cmd.extend([option,value])
     if container and container.containerize:
         cmd.append('--containerize')
-        for key in ('container_image','container_network','container_auth_root','container_env_file','container_session_name'):
+        for key in ('container_image','container_network','container_auth_root','container_env_file'):
             value = getattr(container,key)
             if value: cmd.extend(['--'+key.replace('_','-'),str(value)])
     try:

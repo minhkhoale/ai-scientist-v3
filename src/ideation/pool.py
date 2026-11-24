@@ -123,5 +123,9 @@ class PoolStore:
             state.elo[a],state.elo[b] = update(state.elo[a],state.elo[b],row['winner'],min(state.matches_played[a],state.matches_played[b]))
             state.matches_played[a]+=1; state.matches_played[b]+=1
         state.outcomes=[Outcome(**row) for row in self._rows('outcomes')]
+        # The outcome itself is durable proof of execution even if status append crashed.
+        for outcome in state.outcomes:
+            if outcome.candidate_id in state.candidates:
+                state.status[outcome.candidate_id] = 'executed'
         state.feedback=self._rows('feedback')
         return state

@@ -96,7 +96,7 @@ def _record(row: dict, spec: SourceSpec) -> LiteratureRecord:
     arxiv = str(row.get('arxiv_id') or '')
     if 'arxiv.org/' in url:
         arxiv = re.sub(r'v\d+$','',url.split('/')[-1].removesuffix('.pdf'))
-    authors = row.get('authors') or ()
+    authors = row.get('authors') or row.get('author') or ()
     if isinstance(authors,str):
         authors = authors.split(' and ')
     authors = tuple(str(a.get('name','')) if isinstance(a,dict) else str(a) for a in authors)
@@ -106,7 +106,7 @@ def _record(row: dict, spec: SourceSpec) -> LiteratureRecord:
         year = None
     return LiteratureRecord('L'+hashlib.sha1((url or title.lower()).encode()).hexdigest()[:8], title,
                             str(row.get('abstract') or row.get('summary') or ''), authors, year,
-                            str(row.get('venue') or spec.venue or ''), url, arxiv, spec.raw)
+                            str(row.get('venue') or row.get('conference') or spec.venue or ''), url, arxiv, spec.raw)
 
 
 def _bib_fields(text: str) -> list[dict]:

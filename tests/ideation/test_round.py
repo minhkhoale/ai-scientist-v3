@@ -109,3 +109,51 @@ def test_judge_not_independent_logged_once(tmp_path):
     runner=make_tournament_idea_generation(config(),corpus_dir=None,run_role_fn=role,log_event_fn=lambda event,**k:events.append(event))
     args=seam_args(tmp_path); runner(**args); args['cycle_index']=2; runner(**args)
     assert events.count('ideation_judge_not_independent')==1
+
+
+def test_failed_role_is_cached_on_resume(tmp_path):
+    calls=[]
+    def fail(role,prompt,**kwargs): calls.append(role); return None
+    args=round_args(tmp_path,fail)
+    assert run_tournament_round(**args) is None
+    assert run_tournament_round(**args) is None
+    assert calls==['generate']*3
+
+
+def test_existing_executed_candidate_stays_executed(tmp_path):
+    role,calls=fake_roles(); args=round_args(tmp_path,role); run_tournament_round(**args)
+    state=args['store'].load(); candidate=next(iter(state.candidates.values()))
+    args['store'].mark(candidate.id,'executed','test')
+    def duplicate(role,prompt,**kwargs):
+        if role=='generate': return dict(candidate.bundle)
+        return {'verdict':'pass','summary':'ok','citations':[]}
+    args.update(cycle=2,run_role_fn=duplicate)
+    run_tournament_round(**args)
+    assert args['store'].load().status[candidate.id]=='executed'
+
+
+def test_reconcile_ledger_after_crash_before_pool_hook(tmp_path):
+    role,calls=fake_roles(); args=round_args(tmp_path,role); chosen=run_tournament_round(**args)
+    row={'idea_id':chosen.id,'cycle_index':1,'attempt_id':'a1','actual_score':2,'baseline_score':1,'attempt_pass':True,'falsifier_outcome':'not_refuted'}
+    (tmp_path/'prediction_ledger.jsonl').write_text(json.dumps(row)+'\n')
+    runner=make_tournament_idea_generation(config(),corpus_dir=None,run_role_fn=role,log_event_fn=lambda *a,**k:None)
+    kw=seam_args(tmp_path); kw['cycle_index']=2; runner(**kw)
+    state=args['store'].load()
+    assert state.status[chosen.id]=='executed'
+    assert state.outcomes[0].combined_score==2 and state.outcomes[0].attempt_pass
+
+
+def test_duplicate_crash_before_status_is_rechecked(tmp_path,monkeypatch):
+    original=bundle('Historical idea')
+    def role(name,prompt,**kw):
+        return original if name=='generate' else {'verdict':'pass','summary':'ok','citations':[]}
+    args=round_args(tmp_path,role); args['history_titles']={'old':'Historical idea'}
+    store=args['store']; mark=store.mark
+    def crash(id,status,reason):
+        if status=='rejected': raise RuntimeError('crash')
+        mark(id,status,reason)
+    monkeypatch.setattr(store,'mark',crash)
+    with pytest.raises(RuntimeError): run_tournament_round(**args)
+    monkeypatch.setattr(store,'mark',mark)
+    assert run_tournament_round(**args) is None
+    assert set(store.load().status.values())=={'rejected'}

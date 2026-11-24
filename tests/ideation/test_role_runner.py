@@ -34,3 +34,11 @@ def test_timeout_returns_none(tmp_path):
     import subprocess
     def runner(cmd,timeout): raise subprocess.TimeoutExpired(cmd,timeout)
     assert run_role('generate','Generate',out_dir=tmp_path,agent=RoleAgent('codex',None,None),timeout_seconds=1,container=None,runner=runner) is None
+
+
+def test_role_does_not_reuse_campaign_session(tmp_path,monkeypatch):
+    monkeypatch.setenv('AGENT_CONTAINER_SESSION_NAME','campaign-session')
+    fake=tmp_path/'headless'
+    fake.write_text('#!/usr/bin/env python3\nimport json,os\nfrom pathlib import Path\nPath("verdict.json").write_text(json.dumps({"session":os.environ.get("AGENT_CONTAINER_SESSION_NAME","")}))\n')
+    fake.chmod(0o755); monkeypatch.setenv('HEADLESS_BIN',str(fake))
+    assert run_role('judge_pairwise','Judge',out_dir=tmp_path/'role',agent=RoleAgent('codex'),timeout_seconds=10,container=None)=={'session':''}

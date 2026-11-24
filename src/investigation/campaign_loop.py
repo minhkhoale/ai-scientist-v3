@@ -666,6 +666,7 @@ def run_cycles_and_finalize(
         )
         attempt_record["commitment_intact"] = commitment_intact
         attempt_record["falsifier_outcome"] = ledger_row["falsifier_outcome"]
+        ledger_row["attempt_pass"] = validation.overall_pass
         state_store.append_jsonl(results_dir / idea_commitment.LEDGER_FILE, ledger_row)
         try:
             record_idea_outcome_fn(

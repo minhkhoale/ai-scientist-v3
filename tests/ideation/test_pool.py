@@ -27,3 +27,10 @@ def test_eligible_excludes_executed_rejected_invalid(tmp_path):
     assert [c.id for c in store.load().eligible()]==['d']
     # Replaying a generation step must never reset a terminal status.
     store.add_candidate(candidate('a')); assert store.load().status['a']=='executed'
+
+
+def test_outcome_implies_executed_after_crash(tmp_path):
+    from src.ideation.pool import Outcome
+    store=PoolStore(tmp_path); store.add_candidate(candidate('a')); store.mark('a','eligible','review')
+    store.add_outcome(Outcome('a',1,'attempt',1200,2,1,True,'not_refuted'))
+    assert store.load().eligible()==[] and store.load().status['a']=='executed'

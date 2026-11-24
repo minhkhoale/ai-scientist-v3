@@ -23,6 +23,9 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$AGENT" ] && [ -n "$OUTPUT_DIR" ] && [ -f "$PROMPT_FILE" ] || exit 2
 case "$EXPECTED_OUTPUT" in candidate.json|review.json|verdict.json|feedback.json) ;; *) exit 2;; esac
+# Each role mounts a different workspace; never reuse a campaign container.
+unset AGENT_CONTAINER_SESSION_NAME
+CONTAINER_SESSION_NAME=""
 validate_agent_reasoning_effort "$AGENT" "$AGENT_REASONING_EFFORT"
 export AGENT_REASONING_EFFORT
 PYTHON_BIN="${PYTHON_BIN:-python3}"
