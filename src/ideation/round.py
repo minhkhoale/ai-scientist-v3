@@ -14,7 +14,7 @@ from .literature.sources import LiteratureRecord
 from .literature.corpus import load_corpus, _atomic_write
 from .literature.retrieval import Bm25Index, render_pack, pack_ids
 from .similarity import find_duplicate, text_similarity
-from .roles import RoleContext, RoleOutputError, render_role, parse_candidate, parse_review, parse_verdict, parse_feedback, OUTPUT_FILE
+from .roles import RoleContext, RoleOutputError, render_role, parse_review, parse_verdict, parse_feedback, OUTPUT_FILE
 from .profiles import Profile, PROFILES
 from .proposal.schema import parse_verification
 from .role_runner import RoleAgent, ContainerOptions, run_role

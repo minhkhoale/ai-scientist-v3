@@ -1,7 +1,7 @@
 """Candidate and prompt interfaces for tournament modes."""
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable
 from .pool import Candidate
 from .roles import DEFAULT_PROMPT_DIR, parse_candidate
 
@@ -19,7 +19,7 @@ def execution_text(candidate: Candidate) -> str:
     return candidate.bundle['title']+' '+candidate.bundle['hypothesis']
 
 
-PROFILES: Mapping[str, Profile] = {
+PROFILES: dict[str, Profile] = {
     'execution': Profile('execution', DEFAULT_PROMPT_DIR, parse_candidate, execution_text, ('literature',)),
 }
 

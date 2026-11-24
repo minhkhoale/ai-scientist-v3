@@ -1,4 +1,3 @@
-import json
 import pytest
 from src.ideation.pool import PoolStore
 from src.ideation.roles import RoleOutputError
