@@ -1,6 +1,5 @@
 from dataclasses import replace
 import json
-from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from src.ideation.round import RoundSettings, run_tournament_round, make_tournament_idea_generation, record_outcome
@@ -65,7 +64,7 @@ def test_round_resume_skips_completed_matches(tmp_path):
 
 def test_round_generates_when_pool_exhausted(tmp_path):
     role,calls=fake_roles(); args=round_args(tmp_path,role)
-    selected=run_tournament_round(**args)
+    assert run_tournament_round(**args) is not None
     for c in args['store'].load().eligible(): args['store'].mark(c.id,'executed','test')
     args['cycle']=2; assert run_tournament_round(**args) is not None
     assert calls.count('generate')==6

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,10 +10,13 @@ from src.pipeline.safe_fs import UnsafeGluePathError
 from src.pipeline.task_tree import _same_entry, copy_task_tree_at
 
 
-def _stat(**changes: int) -> SimpleNamespace:
+def _stat(**changes: int) -> os.stat_result:
     values = dict(st_dev=1, st_ino=2, st_mode=0o100644, st_size=10, st_mtime_ns=1_000_000, st_ctime_ns=2_000_000)
     values.update(changes)
-    return SimpleNamespace(**values)
+    return os.stat_result(
+        (values['st_mode'], values['st_ino'], values['st_dev'], 1, 0, 0, values['st_size'], 0, 0, 0),
+        {'st_mtime_ns': values['st_mtime_ns'], 'st_ctime_ns': values['st_ctime_ns']},
+    )
 
 
 def test_one_nanosecond_ctime_flap_is_not_a_change() -> None:
@@ -42,7 +44,7 @@ def test_copy_still_rejects_a_file_changed_while_copying(tmp_path: Path, monkeyp
     (source / "a.txt").write_text("one")
     real_copyfileobj = __import__("shutil").copyfileobj
 
-    def mutate_then_copy(reader, writer, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def mutate_then_copy(reader, writer, *args, **kwargs):
         real_copyfileobj(reader, writer, *args, **kwargs)
         (source / "a.txt").write_text("changed while copying")
 
