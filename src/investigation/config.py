@@ -389,6 +389,7 @@ class IdeationJudgeConfig:
 
 @dataclass
 class IdeationConfig:
+    seed_proposals: str | None = None
     backend: str = "sakana-scientist-v3"
     literature: IdeationLiteratureConfig = field(default_factory=IdeationLiteratureConfig)
     judge: IdeationJudgeConfig = field(default_factory=IdeationJudgeConfig)

@@ -192,3 +192,19 @@ def test_proposal_verification_rejects_and_resumes(tmp_path, status, expected):
     assert len(state.verifications)==1
     before=list(calls); run_tournament_round(**args)
     assert calls==before
+
+
+def test_debate_generator_uses_generation_pack_size(tmp_path,monkeypatch):
+    import src.ideation.round as module
+    from src.ideation.profiles import PROFILES
+    sizes=[]
+    class Index:
+        def __init__(self,corpus): pass
+        def search(self,query,k): sizes.append(k); return []
+    monkeypatch.setattr(module,'Bm25Index',Index)
+    def role(name,prompt,**kwargs): return None
+    args=round_args(tmp_path,role)
+    args.update(profile=replace(PROFILES['proposal'],generate_strategies=('debate',)),
+                settings=RoundSettings(per_round=1,matches_per_round=0))
+    run_tournament_round(**args)
+    assert sizes[0]==args['settings'].pack_k_generate

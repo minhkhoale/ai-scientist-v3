@@ -7,11 +7,11 @@ from typing import Any, Literal, Mapping, get_args
 from src.orchestrator.idea_bundle import normalize_idea_bundle, IdeaBundleValidationError
 from .pool import Candidate, Review
 
-RoleName = Literal['generate','reflect','judge_pairwise','judge_debate','evolve_combine','evolve_simplify','evolve_out_of_box','evolve_feasibility','metareview','generate_debate','verify','parse_goal','codebase_scan','overview']
+RoleName = Literal['generate','reflect','judge_pairwise','judge_debate','evolve_combine','evolve_simplify','evolve_out_of_box','evolve_feasibility','metareview','generate_debate','verify','parse_goal','codebase_scan','overview','concretize']
 OUTPUT_FILE: Mapping[RoleName,str] = {r:('candidate.json' if r=='generate' or r.startswith('evolve_') else 'review.json' if r=='reflect' else 'feedback.json' if r=='metareview' else 'verdict.json') for r in get_args(RoleName)}
 
 OUTPUT_FILE = {**OUTPUT_FILE, 'generate_debate':'candidate.json', 'verify':'review.json',
-               'parse_goal':'plan.json', 'codebase_scan':'codebase.json', 'overview':'overview.json'}
+               'parse_goal':'plan.json', 'codebase_scan':'codebase.json', 'overview':'overview.json', 'concretize':'candidate.json'}
 
 
 class RoleOutputError(ValueError):

@@ -142,3 +142,14 @@ Execution hand-off: `investigation.ideation.seed_proposals=<RUN_DIR>/selected.js
 - Proposal reality stays explicitly experiment-free instead of being replaced by execution calibration. Verification.weakest identifies an assumption claim; reject only if that claim has status implausible.
 - Pre-flight: Tasks 1→3→4→5 share Profile/parser/context; Tasks 3→4→5 share Review.kind and verifications; Tasks 5→6 share proposals rows and selected.jsonl. Above corrections align these interfaces.
 - User scope overrides skill review delegation and Task 7: no real agents, network, or push.
+
+### Implementation record (Tasks 1–6)
+
+- Tasks 1–5 committed independently after red/green ideation runs (70, 71, 82, 84, 89 tests respectively).
+- Task 6 reuses the round's resumable ingest/reflect path for concretization; draft conversions resume before advancing to the next seed.
+- Review correction: generate_debate and concretize use the generation pack size, matching their parser's citation allowlist (regression tested).
+- Stop decisions are reconstructed from saved Elo snapshots after a crash; changed resume inputs are rejected rather than mixed.
+- Golden configuration fixture regenerated with PIPELINE_EFFECTIVE_CONFIG_REGEN=1.
+- Environment deviation: the first combined suite run had 68 failures because sandbox ownership maps /tmp to nobody; rerun outside that sandbox to retain storage safety checks unchanged.
+- Task 7 intentionally skipped. No real role agents, network calls, or push used.
+- Final verification: `env -u HEADLESS_BILLING PIPELINE_EFFECTIVE_CONFIG_REGEN=1 .venv/bin/python -m pytest -q tests/ideation tests/investigation tests/pipeline` — 619 passed, 4 warnings outside the sandbox. `git diff --check` clean.

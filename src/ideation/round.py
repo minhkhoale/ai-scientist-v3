@@ -60,7 +60,7 @@ def _text(candidate: Candidate) -> str:
 def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[LiteratureRecord],
                          ctx_base: RoleContext, settings: RoundSettings, generator: RoleAgent,
                          judge: RoleAgent, run_role_fn, work_dir: Path,
-                         history_titles: Mapping[str,str], log_event_fn, profile: Profile = PROFILES['execution']) -> Candidate | None:
+                         history_titles: Mapping[str,str], log_event_fn, profile: Profile = PROFILES['execution'], seed_proposal: dict | None = None) -> Candidate | None:
     _text = profile.candidate_text
     root = work_dir/'rounds'/f'{cycle:04d}'
     index = Bm25Index(corpus)
@@ -76,7 +76,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         directory = root/step
         completed = directory/'completed.json'
         if completed.exists(): return _read(completed)
-        records = index.search(query or context.task_goal,settings.pack_k_generate if name=='generate' or name.startswith('evolve_') else settings.pack_k_reflect)
+        records = index.search(query or context.task_goal,settings.pack_k_generate if name in ('generate','generate_debate','concretize') or name.startswith('evolve_') else settings.pack_k_reflect)
         ctx = replace(context,literature_pack=render_pack(records),allowed_citations=pack_ids(records))
         output = directory/OUTPUT_FILE[name]
         # An agent may have completed the file before the host was interrupted.
@@ -141,6 +141,15 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
                 store.mark(candidate.id,'rejected','implausible_assumption')
                 return
         if not child: store.mark(candidate.id,'eligible',review.verdict)
+
+    if seed_proposal is not None:
+        step = 'concretize_'+seed_proposal['id']
+        raw = role('concretize',step,CANDIDATE=json.dumps(seed_proposal))
+        candidate = ingest(raw,step,'proposal:'+seed_proposal['id'])
+        if candidate:
+            reflect(candidate,'reflect_'+candidate.id)
+            if store.load().status[candidate.id] == 'eligible': return candidate
+        return None
 
     for i in range(settings.per_round):
         step = f'generate_{i:03d}'
@@ -231,8 +240,29 @@ def make_tournament_idea_generation(cfg, *, corpus_dir: Path | None, run_role_fn
             ctx = RoleContext(task,task,harness,summarize_recent_attempts(task_dir,_rows(state_store.attempts_history_path(results_dir))),
                               json.dumps(_read(results_dir/state_store.BEST_MANIFEST_FILE,{})),'',frozenset(),'','')
             history = {str(i):r.get('title','') for i,r in enumerate(_rows(state_store.ideas_history_path(results_dir)))}
-            candidate = run_tournament_round(cycle=cycle,store=store,corpus=corpus,ctx_base=ctx,settings=settings,generator=generator,judge=judge,
-                        run_role_fn=invoke,work_dir=store.root,history_titles=history,log_event_fn=log_event_fn)
+            seed_path = getattr(cfg.ideation, 'seed_proposals', None)
+            seeds = _rows(Path(seed_path)) if seed_path else []
+            if seed_path and not Path(seed_path).is_file():
+                raise ValueError('seed_proposals file does not exist')
+            if any(not isinstance(s.get('id'), str) or not s['id'].startswith('cand_') or
+                   not isinstance(s.get('bundle'), dict) for s in seeds):
+                raise ValueError('invalid selected proposal row')
+            state = store.load()
+            candidate = None
+            seed = None
+            for proposal in seeds:
+                converted = [c for c in state.candidates.values() if c.strategy == 'proposal:'+proposal['id']]
+                if not converted or any(state.status[c.id] == 'draft' for c in converted):
+                    seed = proposal
+                    break
+                eligible = [c for c in converted if state.status[c.id] == 'eligible']
+                if eligible:
+                    candidate = eligible[0]
+                    break
+            if candidate is None:
+                candidate = run_tournament_round(cycle=cycle,store=store,corpus=corpus,ctx_base=ctx,settings=settings,generator=generator,judge=judge,
+                            run_role_fn=invoke,work_dir=store.root,history_titles=history,log_event_fn=log_event_fn,
+                            seed_proposal=seed)
         if candidate is None: return IdeaGenerationResult('ideation_no_eligible_candidate',1,output_dir)
         state = store.load()
         if not selections or selections[-1]['candidate_id']!=candidate.id:
