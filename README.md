@@ -169,6 +169,8 @@ login, no GPUs, and exercises every phase through to a compiled paper.
 
 ## More examples
 
+See [Tournament ideation](docs/ideation.md) for literature-grounded candidate generation and Elo ranking.
+
 ### 1. Reproduce a campaign task from its preset
 
 Task presets under `configs/preset/` hold the campaign budgets, timeouts,
