@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from .evaluate_program import credential_free_environment, run_contained
+from .evaluator_launcher import (
+    LauncherError,
+    launch_environment,
+    planned_launch,
+    settings_from_environment,
+)
 from .harness_feedback import evaluation_feedback, search_metric_feedback
 from .harness_sources import read_candidate_sources as _read_candidate_sources
 from .evaluator_outputs import EvaluatorOutputContractError
@@ -527,14 +533,24 @@ def _run_direct_evaluation(
     stderr_note = _open_new_log(program_dir / "harness_evaluate_stderr.log")
     with os.fdopen(stderr_note, "w", encoding="utf-8") as note:
         note.write("stderr is merged into harness_evaluate_stdout.log\n")
-    with os.fdopen(_open_new_log(program_dir / "harness_evaluate_stdout.log"), "wb") as log:
-        run = run_contained(
-            command,
-            cwd=experiment_dir,
-            environment=dict(environment),
-            timeout_seconds=timeout_seconds,
-            stdout=log,
-        )
+    try:
+        settings = settings_from_environment(environment)
+        with planned_launch(command, settings=settings, timeout_seconds=timeout_seconds) as plan:
+            if plan.description["mode"] != "local":
+                manifest.update(launcher=plan.description, launched_command=plan.command)
+                _write_json(manifest_path, manifest)
+            with os.fdopen(_open_new_log(program_dir / "harness_evaluate_stdout.log"), "wb") as log:
+                run = run_contained(
+                    plan.command,
+                    cwd=experiment_dir,
+                    environment=launch_environment(environment, plan),
+                    timeout_seconds=timeout_seconds,
+                    stdout=log,
+                )
+    except LauncherError as exc:
+        manifest.update(finished_at=_utc_now(), exit_code=125, launcher_error=str(exc))
+        _write_json(manifest_path, manifest)
+        raise SystemExit(f"evaluator launcher: {exc}") from exc
     if run.timed_out:
         manifest.update(finished_at=_utc_now(), exit_code=124, timeout_seconds=timeout_seconds)
         _write_json(manifest_path, manifest)

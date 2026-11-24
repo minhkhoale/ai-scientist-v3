@@ -40,6 +40,7 @@ def load_idea_artifacts(
     read_json: Callable[[Path], dict[str, Any] | None],
     *,
     require_harness_verification: bool = False,
+    require_preregistration: bool = False,
     harness_incumbent_score: float | None = None,
 ) -> IdeaArtifacts:
     """Load and cross-check the required idea-generation outputs."""
@@ -60,6 +61,15 @@ def load_idea_artifacts(
             path=bundle_path,
             detail=str(exc),
         ) from exc
+
+    if require_preregistration:
+        missing = [key for key in ("prediction", "falsifier") if key not in bundle]
+        if missing:
+            raise IdeaArtifactsError(
+                "missing_preregistration",
+                path=bundle_path,
+                detail=f"idea bundle must include {', '.join(missing)}",
+            )
 
     rubrics_path = workspace / "target_rubrics.json"
     if not rubrics_path.exists():

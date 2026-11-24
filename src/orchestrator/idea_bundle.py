@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from . import idea_commitment
+
 NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9]+")
 MULTI_UNDERSCORE_RE = re.compile(r"_+")
 MAX_SOURCE_PATTERN_CHARS = 1024
@@ -218,7 +220,7 @@ def normalize_idea_bundle(raw: Any, cycle_index: int) -> dict[str, Any]:
     if not isinstance(notes, str):
         notes = ""
 
-    return {
+    normalized_bundle: dict[str, Any] = {
         "idea_id": idea_id,
         "title": title.strip(),
         "hypothesis": hypothesis.strip(),
@@ -226,3 +228,15 @@ def normalize_idea_bundle(raw: Any, cycle_index: int) -> dict[str, Any]:
         "target_rubrics": target_rubrics,
         "notes_for_agent": notes.strip(),
     }
+    # Optional pre-registration: validated whenever present, so a vague falsifier
+    # fails loudly instead of being silently kept.
+    try:
+        if raw.get("prediction") is not None:
+            normalized_bundle["prediction"] = idea_commitment.normalize_prediction(
+                raw["prediction"]
+            )
+        if raw.get("falsifier") is not None:
+            normalized_bundle["falsifier"] = idea_commitment.normalize_falsifier(raw["falsifier"])
+    except idea_commitment.CommitmentError as exc:
+        raise IdeaBundleValidationError(str(exc)) from exc
+    return normalized_bundle

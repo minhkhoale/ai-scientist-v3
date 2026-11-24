@@ -41,6 +41,14 @@ actual content.
 - `hypothesis` (string)
 - `implementation_plan` (non-empty array of short strings)
 - `target_rubrics` (non-empty array of `{id, description, type}`)
+- `prediction`: object `{metric, expected_delta, confidence}`. `metric` is an evaluator metric key
+  (default `combined_score`), `expected_delta` is your numeric estimate of the change versus the
+  current best, and `confidence` in `[0, 1]` is the probability the idea survives its falsifier.
+- `falsifier`: object `{metric, refuted_if, threshold, description}`. State, before running, the
+  measurable result that would refute the hypothesis: `refuted_if` is one of `<`, `<=`, `>`, `>=`
+  and `threshold` is an absolute number in the metric's units (for example, refuted if
+  `combined_score <= <current best>`). Vague conditions are rejected. The bundle is hash-committed
+  before the attempt; the outcome is scored against this falsifier, not against later summaries.
 - `notes_for_agent` (string)
 5. Rubric rules:
 - include at least one `metric` rubric

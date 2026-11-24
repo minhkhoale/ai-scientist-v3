@@ -73,9 +73,7 @@ def require_unchanged_task_root(
     directory_fd: int,
     expected_stat: os.stat_result,
 ) -> None:
-    actual_stat = os.fstat(directory_fd)
-    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
-    if any(getattr(expected_stat, field) != getattr(actual_stat, field) for field in fields):
+    if not _same_entry(expected_stat, os.fstat(directory_fd)):
         raise UnsafeGluePathError("task source changed while copying: .")
 
 
@@ -377,9 +375,21 @@ def _require_unchanged_entry(
     actual: os.stat_result,
     relative_path: Path,
 ) -> None:
-    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
-    if any(getattr(expected, field) != getattr(actual, field) for field in fields):
+    if not _same_entry(expected, actual):
         raise UnsafeGluePathError(f"task source changed while copying: {relative_path}")
+
+
+# Some network filesystems (WekaFS) report a freshly written file's ctime one nanosecond apart
+# between two stats of the same unchanged file. Any real change moves mtime or size as well, or
+# moves ctime by far more than this, so a microsecond is below every real modification.
+_CTIME_TOLERANCE_NS = 1_000
+
+
+def _same_entry(expected: os.stat_result, actual: os.stat_result) -> bool:
+    exact = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")
+    return all(getattr(expected, field) == getattr(actual, field) for field in exact) and (
+        abs(expected.st_ctime_ns - actual.st_ctime_ns) <= _CTIME_TOLERANCE_NS
+    )
 
 
 def _display_path(relative_path: Path) -> Path:

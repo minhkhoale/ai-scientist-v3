@@ -151,6 +151,41 @@ many from `nvidia-smi` are used, and each worker receives its own `N`-GPU slice
 (exported to the workers as `AGENT_CONTAINER_GPUS`, with the whole pool in
 `AGENT_CONTAINER_GPU_POOL`).
 
+### Native evaluation on Slurm (agent here, evaluator on a GPU node)
+
+Native runs (`container.enabled=false`, `investigation.execution.harness_evaluated_attempts=true`)
+can keep the agent on the node you start `agsci` on, for example a login node whose network
+reaches the agent's API, and send only the evaluator command to a compute node through `srun`.
+The choice is host policy, so it comes from environment variables read by the harness evaluation:
+
+| Variable | Meaning |
+| - | - |
+| `AGSCI_EVAL_LAUNCHER` | `local` (default), `slurm-job`, `slurm-alloc`, or `auto` |
+| `AGSCI_EVAL_SLURM_JOBID` | `slurm-job`: run each evaluation as an `srun --overlap` step in this running job (for example an interactive job). Evaluations aimed at the same job take turns. |
+| `AGSCI_EVAL_SLURM_JOB_NAME_REGEX` | `auto`: pick one of your running jobs whose name matches (default `interact`) that no other evaluation holds |
+| `AGSCI_EVAL_SLURM_PARTITION`, `AGSCI_EVAL_SLURM_ACCOUNT` | `slurm-alloc`: request options; for `auto`, the partition also filters the jobs considered |
+| `AGSCI_EVAL_SLURM_GRES` | default `gpu:1`; set it empty for a CPU-only evaluator |
+| `AGSCI_EVAL_SLURM_CPUS`, `AGSCI_EVAL_SLURM_MEM`, `AGSCI_EVAL_SLURM_EXTRA_ARGS` | more `srun` options (extra args are shell-quoted) |
+
+`slurm-alloc` runs one blocking `srun` per evaluation, so each evaluation waits in the queue and
+the wait counts against `investigation.execution.harness_evaluation_timeout_seconds`. `auto` uses a
+free interactive job when there is one and falls back to `slurm-alloc` otherwise.
+
+```bash
+AGSCI_EVAL_LAUNCHER=auto AGSCI_EVAL_SLURM_PARTITION=gpu-large \
+agsci run <task> container.enabled=false \
+  investigation.execution.harness_evaluated_attempts=true \
+  investigation.execution.gpu_evaluation=true
+```
+
+Requirements: the run directory, the evaluator and its Python must be visible at the same path on
+the compute node (a shared filesystem, so use a results root on it, not node-local `/tmp`). The
+harness stops with a clear message if the chosen job is not running. The launcher is recorded in
+each `evaluation_manifest.json` (`launcher`, `launched_command`). Concurrent `agsci` processes
+coordinate through lock files under `/tmp/agsci-eval-launch-<uid>`, so they must run on the same
+host. The agent itself still runs where you started `agsci`; this does not move agent work to the
+compute node.
+
 ### Arguments and help
 
 Run `--help` to see all available configuration keys and their defaults:
