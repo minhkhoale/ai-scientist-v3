@@ -321,6 +321,15 @@ def build_parallel_worker_command(
         # root once every worker has joined.
         "versioning.enabled=false",
     ]
+    # JSON strings preserve source grammar punctuation under Hydra parsing.
+    import dataclasses
+    def forward_ideation(prefix, value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                forward_ideation(prefix + "." + key, item)
+        else:
+            cmd.append(prefix + "=" + json.dumps(value))
+    forward_ideation("ideation", dataclasses.asdict(cfg.ideation))
     if resume is not None:
         cmd.append(f"execution.resume={'true' if resume else 'false'}")
     if global_cycle is not None:

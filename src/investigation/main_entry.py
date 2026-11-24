@@ -850,6 +850,9 @@ def run_main_flow(
                 fallback=str(seed_program_dir),
             )
 
+    from src.ideation.backends import get_backend
+    backend = get_backend(cfg.ideation.backend)
+
     if use_parallel_campaign:
         parallel_results_dir = (
             normalize_agent_results_dir_fn(results_dir, cfg.agent.name)
@@ -869,6 +872,7 @@ def run_main_flow(
                 error=str(exc),
             )
             return 2
+        backend.prepare(cfg, results_dir=parallel_results_dir, log_event_fn=log_event_fn)
         write_hydra_snapshot(cfg, parallel_results_dir)
         log_event_fn("run_hydra_config", **config_to_flat_dict(cfg))
         log_event_fn("run_config", **run_config_fields)
@@ -1159,6 +1163,7 @@ def run_main_flow(
             },
         )
 
+    backend.prepare(cfg, results_dir=results_dir, log_event_fn=log_event_fn)
     return campaign_loop.run_cycles_and_finalize(
         cfg=cfg,
         task_dir=task_dir,
@@ -1188,7 +1193,8 @@ def run_main_flow(
         log_step_start_fn=log_step_start_fn,
         log_step_end_fn=log_step_end_fn,
         format_elapsed_fn=format_elapsed_fn,
-        run_idea_generation_fn=run_idea_generation_fn,
+        run_idea_generation_fn=backend.idea_generation_fn(default=run_idea_generation_fn),
+        record_idea_outcome_fn=backend.record_outcome,
         run_single_attempt_fn=run_single_attempt_fn,
         run_paper_generation_fn=run_paper_generation_fn,
         reconcile_legacy_idea_local_memory_fn=reconcile_legacy_idea_local_memory_fn,

@@ -374,7 +374,41 @@ def _generate_run_id() -> str:
 
 
 @dataclass
+class IdeationLiteratureConfig:
+    sources: list[str] = field(default_factory=list)
+    corpus_dir: str | None = None
+    require_nonempty: bool = True
+
+
+@dataclass
+class IdeationJudgeConfig:
+    agent: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+
+
+@dataclass
+class IdeationConfig:
+    backend: str = "sakana-scientist-v3"
+    literature: IdeationLiteratureConfig = field(default_factory=IdeationLiteratureConfig)
+    judge: IdeationJudgeConfig = field(default_factory=IdeationJudgeConfig)
+    per_round: int = 3
+    matches_per_round: int = 6
+    evolve_min_mature: int = 4
+    evolve_mature_matches: int = 2
+    evolve_top_k: int = 4
+    evolve_strategies: tuple[str, ...] = ("combine", "simplify", "out_of_box")
+    metareview_every: int = 3
+    pack_k_generate: int = 8
+    pack_k_reflect: int = 6
+    dedup_threshold: float = 0.85
+    max_pool: int = 40
+    role_timeout_seconds: int = 1800
+
+
+@dataclass
 class InvestigationConfig:
+    ideation: IdeationConfig = field(default_factory=IdeationConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -637,10 +671,19 @@ def config_to_flat_dict(cfg: InvestigationConfig) -> dict[str, str]:
     import dataclasses
 
     flat: dict[str, str] = {}
+    def flatten_ideation(prefix, value):
+        if dataclasses.is_dataclass(value):
+            for item in dataclasses.fields(value):
+                flatten_ideation(prefix + "." + item.name, getattr(value, item.name))
+        else:
+            flat[prefix] = str(value) if value is not None else "null"
     for section_field in dataclasses.fields(cfg):
         if section_field.metadata.get("internal", False):
             continue
         section = getattr(cfg, section_field.name)
+        if section_field.name == "ideation":
+            flatten_ideation("ideation", section)
+            continue
         if dataclasses.is_dataclass(section):
             for param_field in dataclasses.fields(section):
                 key = f"{section_field.name}.{param_field.name}"

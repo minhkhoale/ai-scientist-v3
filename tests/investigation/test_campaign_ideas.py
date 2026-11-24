@@ -496,6 +496,7 @@ def _run_campaign(
     finalize_on_exit: bool = True,
     find_best_fn: Callable[..., Any] = lambda _dir: None,
     require_preregistration: bool = False,
+    record_idea_outcome_fn: Callable[..., None] = lambda **_: None,
 ) -> int:
     results_dir = tmp_path / "run"
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -537,6 +538,7 @@ def _run_campaign(
         log_step_start_fn=lambda *a, **k: 0.0,
         log_step_end_fn=lambda *a, **k: None,
         format_elapsed_fn=lambda seconds: f"{seconds:.0f}s",
+        record_idea_outcome_fn=record_idea_outcome_fn,
         run_idea_generation_fn=idea_generation_fn,
         run_single_attempt_fn=attempt_fn,
         run_paper_generation_fn=lambda *a, **k: None,
@@ -899,3 +901,20 @@ def test_create_idea_skill_lists_preregistration_fields():
     text = Path("src/agents/skills/create-idea/SKILL.md").read_text()
     keys = text.split("4. ", 1)[1].split("5. ", 1)[0]
     assert "`prediction`" in keys and "`falsifier`" in keys
+
+
+def test_campaign_calls_outcome_hook_with_ledger_fields(tmp_path):
+    calls=[]
+    assert _run_campaign(tmp_path,idea_generation_fn=_registered_idea_generation,record_idea_outcome_fn=lambda **kw:calls.append(kw))==0
+    [row]=_ledger(tmp_path)
+    assert calls[0]["idea_id"]==row["idea_id"]
+    assert calls[0]["cycle"]==row["cycle_index"]
+    assert calls[0]["combined_score"]==row["actual_score"]
+    assert calls[0]["falsifier_outcome"]==row["falsifier_outcome"]
+
+
+def test_outcome_hook_failure_does_not_stop_campaign(tmp_path):
+    events=[]
+    def fail(**kw): raise RuntimeError("hook failed")
+    assert _run_campaign(tmp_path,record_idea_outcome_fn=fail,log_event_fn=lambda event,**kw:events.append(event))==0
+    assert "ideation_outcome_failed" in events

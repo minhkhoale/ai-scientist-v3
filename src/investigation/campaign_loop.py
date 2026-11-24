@@ -85,6 +85,7 @@ def run_cycles_and_finalize(
     find_best_program_in_experiment_fn: Callable[[Path], BestProgramCandidate | None],
     read_json_fn: Callable[[Path], dict[str, Any] | None],
     utc_now_fn: Callable[[], str],
+    record_idea_outcome_fn: Callable[..., None] = lambda **_: None,
     checkpoint_fn: Callable[..., None] = lambda **_kwargs: None,
 ) -> int:
     """Execute campaign cycles and finalize optional paper output."""
@@ -666,6 +667,15 @@ def run_cycles_and_finalize(
         attempt_record["commitment_intact"] = commitment_intact
         attempt_record["falsifier_outcome"] = ledger_row["falsifier_outcome"]
         state_store.append_jsonl(results_dir / idea_commitment.LEDGER_FILE, ledger_row)
+        try:
+            record_idea_outcome_fn(
+                results_dir=results_dir, idea_id=ledger_row["idea_id"],
+                cycle=ledger_row["cycle_index"], attempt_id=ledger_row["attempt_id"],
+                combined_score=ledger_row["actual_score"], baseline_score=ledger_row["baseline_score"],
+                attempt_pass=validation.overall_pass, falsifier_outcome=ledger_row["falsifier_outcome"],
+            )
+        except Exception as exc:
+            log_event_fn("ideation_outcome_failed", idea_id=idea_id, error=str(exc))
         state_store.append_jsonl(state_store.attempts_history_path(results_dir), attempt_record)
         state_store.save_outer_state(results_dir, outer_state)
         checkpoint_fn(

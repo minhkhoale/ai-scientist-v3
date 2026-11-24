@@ -103,3 +103,27 @@ versioning:
   tag_checkpoints: true
   final_include_environments: false
   finalize_on_exit: true            # pipeline children override false; parent owns final snapshot
+
+# Optional literature-grounded tournament backend.
+ideation:
+  backend: sakana-scientist-v3
+  literature:
+    sources: []
+    corpus_dir: null
+    require_nonempty: true
+  judge:
+    agent: null
+    model: null
+    reasoning_effort: null
+  per_round: 3
+  matches_per_round: 6
+  evolve_min_mature: 4
+  evolve_mature_matches: 2
+  evolve_top_k: 4
+  evolve_strategies: [combine, simplify, out_of_box]
+  metareview_every: 3
+  pack_k_generate: 8
+  pack_k_reflect: 6
+  dedup_threshold: 0.85
+  max_pool: 40
+  role_timeout_seconds: 1800

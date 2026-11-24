@@ -20,6 +20,9 @@ from .constants import (
     DEFAULT_PAPER_TIMEOUT_SECONDS,
 )
 from .config import (
+    IdeationConfig,
+    IdeationLiteratureConfig,
+    IdeationJudgeConfig,
     AgentConfig,
     ConfigValidationError,
     ContainerConfig,
@@ -124,6 +127,7 @@ def load_config(overrides: list[str] | None = None) -> InvestigationConfig:
         {str(k): v for k, v in hydra_cfg.items()} if isinstance(hydra_cfg, dict) else {}
     )
 
+    _validate_ideation(cfg)
     validate(cfg)
     resolve_defaults(cfg)
     cfg.hydra_runtime_config = _build_hydra_runtime_config(cfg, config_dir)
@@ -203,6 +207,7 @@ def _serializable_config_dict(cfg: InvestigationConfig) -> dict[str, Any]:
 
 
 _KNOWN_TOP_LEVEL_KEYS = {
+    "ideation",
     "agent",
     "paths",
     "execution",
@@ -217,6 +222,7 @@ _KNOWN_TOP_LEVEL_KEYS = {
 _GROUP_FIELDS: dict[str, set[str]] = {
     group_name: {f.name for f in dataclasses.fields(cls)}
     for group_name, cls in [
+        ("ideation", IdeationConfig),
         ("agent", AgentConfig),
         ("paths", PathsConfig),
         ("execution", ExecutionConfig),
@@ -288,7 +294,13 @@ def _dict_to_config(d: dict) -> InvestigationConfig:
     logging_d = d.get("logging", {})
     versioning_d = d.get("versioning", {})
 
+    ideation_d = dict(d.get("ideation", {}))
+    ideation_d["literature"] = IdeationLiteratureConfig(**ideation_d.get("literature", {}))
+    ideation_d["judge"] = IdeationJudgeConfig(**ideation_d.get("judge", {}))
+    if "evolve_strategies" in ideation_d:
+        ideation_d["evolve_strategies"] = tuple(ideation_d["evolve_strategies"])
     return InvestigationConfig(
+        ideation=IdeationConfig(**ideation_d),
         agent=AgentConfig(
             name=str(agent_d.get("name", "claude")),
             model=agent_d.get("model"),
@@ -462,3 +474,29 @@ def _print_help() -> None:
     lines.append("")
     lines.append("See configs/config.yaml for all available keys and defaults.")
     print("\n".join(lines))
+
+
+def _validate_ideation(cfg: InvestigationConfig) -> None:
+    from src.ideation.backends import get_backend
+    from src.ideation.literature.sources import parse_source_spec
+    get_backend(cfg.ideation.backend)
+    for source in cfg.ideation.literature.sources:
+        parse_source_spec(source)
+    if cfg.ideation.backend == "coscientist":
+        if not cfg.ideation.literature.sources and not cfg.ideation.literature.corpus_dir:
+            raise ValueError("coscientist requires ideation.literature.sources or ideation.literature.corpus_dir")
+        if not cfg.execution.require_preregistration:
+            cfg.execution.require_preregistration = True
+            logger.warning("ideation_forced_preregistration")
+    for key in ("per_round", "matches_per_round", "evolve_min_mature", "evolve_mature_matches", "metareview_every"):
+        value = getattr(cfg.ideation, key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"ideation.{key} must be a nonnegative integer")
+    for key in ("evolve_top_k", "pack_k_generate", "pack_k_reflect", "max_pool", "role_timeout_seconds"):
+        value = getattr(cfg.ideation, key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"ideation.{key} must be a positive integer")
+    if not 0 <= cfg.ideation.dedup_threshold <= 1:
+        raise ValueError("ideation.dedup_threshold must be in [0, 1]")
+    if set(cfg.ideation.evolve_strategies) - {"combine", "simplify", "out_of_box", "feasibility"}:
+        raise ValueError("unknown ideation.evolve_strategies")
