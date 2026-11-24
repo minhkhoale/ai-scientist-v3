@@ -156,3 +156,17 @@ def test_duplicate_crash_before_status_is_rechecked(tmp_path,monkeypatch):
     monkeypatch.setattr(store,'mark',mark)
     assert run_tournament_round(**args) is None
     assert set(store.load().status.values())=={'rejected'}
+
+
+def test_generator_prompts_differ_within_round(tmp_path):
+    role, _ = fake_roles()
+    prompts = []
+    def recording(name, prompt, **kwargs):
+        if name == 'generate':
+            prompts.append(prompt)
+        return role(name, prompt, **kwargs)
+    args = round_args(tmp_path, recording)
+    run_tournament_round(**args)
+    titles = [c.bundle['title'] for c in args['store'].load().candidates.values()]
+    assert len(set(prompts)) == 3
+    assert all(title in prompts[2] for title in titles[:2])

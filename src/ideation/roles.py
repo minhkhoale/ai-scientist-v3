@@ -35,6 +35,7 @@ def render_role(role: RoleName, ctx: RoleContext, *, prompt_dir: Path = DEFAULT_
     if role not in OUTPUT_FILE: raise ValueError(f'unknown role {role}')
     text = (prompt_dir/f'{role}.md').read_text()
     values = {key.upper():str(value) for key,value in asdict(ctx).items()}
+    values.update({'EXISTING_CANDIDATES':'(none)', 'FOCUS':'literature'})
     values.update(slots)
     # Substitute once: literature and agent data must never become template code.
     text = re.sub(r'{{([A-Z_]+)}}',lambda m:values.get(m[1],m[0]),text)

@@ -127,8 +127,13 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
 
     for i in range(settings.per_round):
         step = f'generate_{i:03d}'
-        raw = role('generate',step)
-        candidate = ingest(raw,step,'generate')
+        strategy = profile.generate_strategies[i % len(profile.generate_strategies)]
+        axes = getattr(context, 'focus_axes', ())
+        focus = axes[i % len(axes)] if axes else strategy
+        titles = [c.bundle['title'] for c in store.load().candidates.values()]
+        raw = role('generate_debate' if strategy == 'debate' else 'generate',step,
+                   EXISTING_CANDIDATES='\n'.join(titles) or '(none)', FOCUS=focus)
+        candidate = ingest(raw,step,'generate' if profile.name == 'execution' else strategy)
         if candidate: reflect(candidate,f'reflect_{candidate.id}')
 
     completed_matches = {(r['cycle'],r['match_index']) for r in store._rows('matches')}
