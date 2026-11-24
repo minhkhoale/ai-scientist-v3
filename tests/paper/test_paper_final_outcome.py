@@ -800,15 +800,23 @@ def test_stages_reuses_verified_sources_and_retains_partial_publication_without_
 ):
     from src.orchestrator import paper_study_sources as module
 
+    def stable_metadata(path):
+        metadata = path.stat()
+        # Verification reads may update atime without replacing or modifying the entry.
+        return (
+            metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns,
+        )
+
     _disable_exclusive_rename(monkeypatch)
     # stages and reuses verified sources without an exclusive rename
     paper, data, selection = _make_sources(tmp_path / "reuse")
     _stage(paper, data, selection)
     target = paper / "source_evidence/downstream/program/main.py"
-    before = target.stat()
+    before = stable_metadata(target)
     _stage(paper, data, selection)
     assert target.read_text() == "selected = True\n"
-    assert target.stat() == before
+    assert stable_metadata(target) == before
     # a partial source publication is retained and rejected on retry
     paper, data, selection = _make_sources(tmp_path / "partial")
     original = module._write_tree
@@ -826,11 +834,11 @@ def test_stages_reuses_verified_sources_and_retains_partial_publication_without_
     with pytest.raises(ValueError, match="injected full filesystem"):
         _stage(paper, data, selection)
     partial = paper / "source_evidence/downstream/program"
-    before = partial.stat()
+    before = stable_metadata(partial)
     monkeypatch.setattr(module, "_write_tree", original)
     with pytest.raises(ValueError, match="differ"):
         _stage(paper, data, selection)
-    assert partial.stat() == before
+    assert stable_metadata(partial) == before
     assert "source_evidence" not in data["downstream_study"]
 
 
