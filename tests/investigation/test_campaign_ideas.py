@@ -893,3 +893,9 @@ def test_shell_renders_prediction_calibration_from_ledger(tmp_path: Path) -> Non
     assert "## Prediction Calibration" in prompt
     assert "Brier score 0.490" in prompt and "0% survived" in prompt
     assert "{{PREDICTION_CALIBRATION_SUMMARY}}" not in prompt
+
+
+def test_create_idea_skill_lists_preregistration_fields():
+    text = Path("src/agents/skills/create-idea/SKILL.md").read_text()
+    keys = text.split("4. ", 1)[1].split("5. ", 1)[0]
+    assert "`prediction`" in keys and "`falsifier`" in keys
