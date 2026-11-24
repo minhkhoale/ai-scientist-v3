@@ -170,3 +170,25 @@ def test_generator_prompts_differ_within_round(tmp_path):
     titles = [c.bundle['title'] for c in args['store'].load().candidates.values()]
     assert len(set(prompts)) == 3
     assert all(title in prompts[2] for title in titles[:2])
+
+
+@pytest.mark.parametrize('status,expected', [('implausible','rejected'),('plausible','eligible')])
+def test_proposal_verification_rejects_and_resumes(tmp_path, status, expected):
+    from src.ideation.profiles import PROFILES
+    from tests.ideation.test_proposal_schema import proposal
+    calls=[]
+    def role(name,prompt,**kwargs):
+        calls.append(name)
+        if name.startswith('generate'): return proposal()
+        if name=='reflect': return {'verdict':'pass','summary':'ok','citations':[]}
+        if name=='verify':
+            return {'assumptions':[{'claim':'Anchors help','status':status,'rationale':'Evidence'}],
+                    'weakest':'Anchors help','kill_experiment':'Ablate'}
+    args=round_args(tmp_path,role)
+    args.update(profile=PROFILES['proposal'],settings=RoundSettings(per_round=1,matches_per_round=0))
+    run_tournament_round(**args)
+    state=args['store'].load()
+    assert list(state.status.values())==[expected]
+    assert len(state.verifications)==1
+    before=list(calls); run_tournament_round(**args)
+    assert calls==before

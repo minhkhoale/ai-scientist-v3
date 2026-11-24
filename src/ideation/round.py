@@ -16,6 +16,7 @@ from .literature.retrieval import Bm25Index, render_pack, pack_ids
 from .similarity import find_duplicate, text_similarity
 from .roles import RoleContext, RoleOutputError, render_role, parse_candidate, parse_review, parse_verdict, parse_feedback, OUTPUT_FILE
 from .profiles import Profile, PROFILES
+from .proposal.schema import parse_verification
 from .role_runner import RoleAgent, ContainerOptions, run_role
 
 
@@ -69,7 +70,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         if candidate.cycle<cycle and state.status[candidate.id]=='draft' and review and review.verdict in ('pass','neutral'):
             store.mark(candidate.id,'eligible','evolution matured')
     feedback = [r for r in state.feedback if r.get('kind')=='metareview']
-    context = replace(ctx_base,reality=json.dumps(reality_calibration(state.outcomes)),feedback=json.dumps(feedback[-3:]))
+    context = replace(ctx_base,reality=ctx_base.reality if profile.name == 'proposal' else json.dumps(reality_calibration(state.outcomes)),feedback=json.dumps(feedback[-3:]))
 
     def role(name, step, *, query='', **slots):
         directory = root/step
@@ -80,7 +81,7 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
         output = directory/OUTPUT_FILE[name]
         # An agent may have completed the file before the host was interrupted.
         raw = _read(output) if output.exists() else run_role_fn(name,render_role(name,ctx,prompt_dir=profile.prompt_dir,**slots),out_dir=directory,
-               agent=judge if name=='reflect' or name.startswith('judge_') else generator,
+               agent=judge if name in ('reflect','verify') or name.startswith('judge_') else generator,
                timeout_seconds=settings.role_timeout_seconds,container=None)
         _write_once(completed,raw)
         return raw
@@ -122,8 +123,24 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
             except RoleOutputError:
                 store.mark(candidate.id,'rejected','invalid review'); return
             store.add_review(review)
-        if review.verdict not in ('pass','neutral'): store.mark(candidate.id,'rejected',review.verdict)
-        elif not child: store.mark(candidate.id,'eligible',review.verdict)
+        if review.verdict not in ('pass','neutral'):
+            store.mark(candidate.id,'rejected',review.verdict)
+            return
+        if profile.name == 'proposal':
+            verification = store.load().verifications.get(candidate.id)
+            if verification is None:
+                raw = role('verify','verify_'+candidate.id,query=_text(candidate),CANDIDATE=json.dumps(asdict(candidate)))
+                try:
+                    verification = parse_verification(raw,candidate_id=candidate.id,
+                        allowed=pack_ids(index.search(_text(candidate),settings.pack_k_reflect)))
+                except RoleOutputError:
+                    store.mark(candidate.id,'rejected','invalid verification')
+                    return
+                store.add_review(verification)
+            if any(a['claim'] == verification.weakest and a['status'] == 'implausible' for a in verification.assumptions):
+                store.mark(candidate.id,'rejected','implausible_assumption')
+                return
+        if not child: store.mark(candidate.id,'eligible',review.verdict)
 
     for i in range(settings.per_round):
         step = f'generate_{i:03d}'
@@ -149,7 +166,11 @@ def run_tournament_round(*, cycle: int, store: PoolStore, corpus: Sequence[Liter
             pair = {'a':ids[0],'b':ids[1],'mode':select_mode(state,*ids)}
             _write_once(pair_path,pair)
         a,b,mode = pair['a'],pair['b'],pair['mode']
-        def display(id): return json.dumps({'candidate':asdict(state.candidates[id]),'review':asdict(state.reviews[id]) if id in state.reviews else None})
+        def display(id):
+            row = {'candidate':asdict(state.candidates[id]),'review':asdict(state.reviews[id]) if id in state.reviews else None}
+            if profile.name == 'proposal':
+                row['verification'] = asdict(state.verifications[id]) if id in state.verifications else None
+            return json.dumps(row)
         raw = role('judge_'+mode,f'match_{i:03d}',CANDIDATE_A=display(a),CANDIDATE_B=display(b))
         try: winner = parse_verdict(raw)
         except RoleOutputError: winner = None
