@@ -85,6 +85,10 @@ def test_graph_pipeline_writes_tiered_artifacts_and_handoff(tmp_path):
     assert any(n['tier'] == 'deep' for n in graph['nodes'] if n['type'] == 'paper')
     rows = json.loads((out / 'gaps.json').read_text())['gaps']
     assert rows and all(row['pattern'] and row['family'] for row in rows)
+    from src.ideation.proposal.schema import parse_gaps
+    from src.ideation.literature.corpus import load_corpus
+    allowed = {record.id for record in load_corpus(out / 'corpus')}
+    assert len(parse_gaps({'gaps': rows}, allowed)) >= 3
     assert 'Estimated LLM calls before extraction' not in report.read_text()
     assert json.loads((out / 'status.json').read_text())['estimated_calls'] > 0
     assert 'graph_extract' in calls and 'screen' in calls and 'canonicalize' in calls

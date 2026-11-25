@@ -172,7 +172,7 @@ def _gap(candidate, graph, family):
     edges = [edge_map[i] for i in candidate.edge_ids if i in edge_map]
     evidence = tuple(dict.fromkeys(span for edge in edges for span in edge.evidence))
     papers = tuple(sorted({edge.source_paper for edge in edges}))
-    if len(papers) < 1 or not evidence:
+    if len(papers) < 2 or not evidence:
         return None
     nodes = [node_map[i] for i in candidate.node_ids if i in node_map]
     problem = next((n for n in nodes if n.type == 'problem'), None)
@@ -216,8 +216,11 @@ def _report(out, topic, graph, relevance, gaps, verifications, assessments, rank
         for edge_id in gap.graph_edge_ids:
             edge = next((edge for edge in graph.edges if edge.id == edge_id), None)
             if edge:
-                findings.append({'citation': edge.source_paper,
-                                 'finding': f'{edge.type}: {node_map[edge.source].name} → {node_map[edge.target].name}'})
+                for span in edge.evidence:
+                    source_doc = next((d for d in documents if d.record.id == span.source), None)
+                    if source_doc and source_doc.origin == 'paper':
+                        findings.append({'citation': span.source,
+                            'finding': f'{edge.type}: {node_map[edge.source].name} → {node_map[edge.target].name}'})
         handoff.append({'id': gap.id, 'statement': gap.statement, 'sub_problem': gap.sub_problem,
             'why_open': 'Hypothesis requiring further study.', 'closing_evidence': gap.closing_evidence,
             'closest_prior': list(gap.closest_prior), 'evidence': findings,
