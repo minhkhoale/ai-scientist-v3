@@ -7,7 +7,7 @@ All options are Hydra overrides to `agsci run <task_dir> ...`, run from the repo
 
 | Decision | Overrides |
 | - | - |
-| Agent and model | `agent.name=claude\|codex\|cursor\|opencode\|gemini\|pi`, `agent.model=<id>`, `agent.reasoning_effort=<level>` |
+| Agent and model | `agent.name=claude\|codex\|cursor\|opencode\|gemini\|antigravity\|pi`, `agent.model=<id>`, `agent.reasoning_effort=<level>` |
 | Campaign budgets | `preset=paper` (20 cycles plus campaign timeouts), or explicitly `investigation.execution.max_idea_cycles=N` (plain `agsci run` default: 3) |
 | Attempt time | `investigation.execution.run_timeout_seconds` (one agent attempt, default 21600) and `investigation.execution.idea_timeout_seconds` |
 | Evaluations | `investigation.execution.max_program_evals_per_attempt=K`; GPU tasks: `investigation.execution.harness_evaluation_timeout_seconds=S` (default 7200); `ablations.execution.num_replications=R` (default 5) |

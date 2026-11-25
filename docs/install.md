@@ -80,7 +80,14 @@ codex --version
 cursor-agent --version
 opencode --version
 gemini --version
+agy --version
 pi --version
+```
+
+The official Antigravity CLI installer is:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
 ```
 
 `agsci doctor` runs these and the other host checks in one go.
