@@ -480,6 +480,11 @@ def _validate_ideation(cfg: InvestigationConfig) -> None:
     from src.ideation.backends import get_backend
     from src.ideation.literature.sources import parse_source_spec
     get_backend(cfg.ideation.backend)
+    if cfg.ideation.seed_proposals is not None:
+        if cfg.ideation.backend != "coscientist":
+            raise ValueError("ideation.seed_proposals requires coscientist backend")
+        if not isinstance(cfg.ideation.seed_proposals, str) or not cfg.ideation.seed_proposals.strip():
+            raise ValueError("ideation.seed_proposals must be a nonempty path")
     for source in cfg.ideation.literature.sources:
         parse_source_spec(source)
     if cfg.ideation.backend == "coscientist":

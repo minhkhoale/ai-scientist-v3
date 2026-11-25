@@ -106,6 +106,7 @@ versioning:
 
 # Optional literature-grounded tournament backend.
 ideation:
+  seed_proposals: null
   backend: sakana-scientist-v3
   literature:
     sources: []

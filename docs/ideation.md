@@ -156,3 +156,50 @@ agsci run examples/circpack execution.phases=investigation \
 Inspect `ideation/outcomes.jsonl` and `prediction_ledger.jsonl` for matching
 `cand_` idea ids after running it. Candidate and match counts depend on generation,
 review acceptance, and duplication; they are not guaranteed by the cycle count.
+
+## Rank proposals before spending experiment compute
+
+`agsci propose run` ranks research ideas on paper using the frozen literature
+corpus, full reviews, assumption verification, and Elo debates. It runs native
+role sessions and no experiments. Prompts instruct roles to keep an optional
+codebase read-only and avoid network access; these are prompt policies rather
+than filesystem or egress enforcement.
+
+```bash
+agsci propose run --goal 'Reduce error accumulation in video diffusion' \
+  --codebase /path/to/model --source 'folder:/path/to/papers' \
+  --agent codex --model MODEL --judge-agent claude \
+  --rounds 4 --per-round 3 --matches-per-round 6 --out results/my-proposals
+```
+
+Use `--goal-file goal.txt` instead of `--goal` for a longer brief. Without `--out`,
+runs go to `results/proposals/<goal-slug>/<YYYYMMDD_HHMMSS>/`. Corpus building
+uses the source grammar above, including network sources when explicitly given;
+an existing `<out>/literature` is reused. Role calls use only that frozen corpus.
+Rerun the same command and output directory to resume. Changed goal, codebase,
+settings or agents require a new directory.
+
+Outputs include `plan.json`, optional `codebase.json`, `ideation/` pool logs and
+Elo snapshots, ranked `proposals.jsonl`, `overview.md`, and `status.json`.
+The default stop is four rounds or two consecutive snapshots with the same
+unordered top-five candidate ids. Fewer than two eligible candidates stops with
+`state=no_candidates`; any eligible proposal remains in the outputs for review.
+Elo ranks paper plausibility, not measured experimental performance. Unknown
+candidate and literature references are stripped from the overview.
+
+Select proposals explicitly, in the order they should be executed:
+
+```bash
+agsci propose select results/my-proposals cand_FIRST cand_SECOND
+agsci run /path/to/task investigation.ideation.backend=coscientist \
+  investigation.ideation.literature.corpus_dir=results/my-proposals/literature \
+  investigation.ideation.seed_proposals=results/my-proposals/selected.jsonl
+```
+
+`select` writes `selected.jsonl` and rejects unknown or duplicate ids. The
+coscientist execution backend concretizes each selected proposal against
+`task.md`, producing the normal implementation plan, rubrics, prediction and
+numeric falsifier, then reflects it and selects it before ordinary Elo-ranked
+candidates. Conversion and reflection resume from cached steps. Once the seeds
+are consumed, normal tournament rounds resume. The default backend does not
+accept `seed_proposals`; its default is `null`.
