@@ -122,3 +122,11 @@ def test_offline_identifier_input_does_not_access_network(tmp_path):
     review=tmp_path/'review.md';review.write_text('# R\n\nA claim.')
     with pytest.raises(ValidationError,match='offline'):
         retrieve(topic='Topic',papers=['2501.12345'],manuscript=review,out=tmp_path/'out',provider=Provider(),settings=DiscoverySettings(offline=True))
+
+
+def test_openalex_requests_carry_api_key_only_for_openalex():
+    from src.research_discovery.providers import ScholarProvider
+    urls=[]
+    provider=ScholarProvider(http=lambda u:(urls.append(u),b'{}')[1],sleep=lambda s:None,api_key='k1')
+    provider.get('https://api.openalex.org/works?search=x');provider.get('https://export.arxiv.org/api/query?id_list=1')
+    assert urls[0].endswith('&api_key=k1') and 'api_key' not in urls[1]

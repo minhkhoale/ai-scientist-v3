@@ -1,6 +1,7 @@
 """Bounded scholarly retrieval with offline seams and durable source snapshots."""
 from dataclasses import asdict, dataclass, replace
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -15,6 +16,16 @@ from .ingest import make_record, load_inputs, passages, pdf_text
 from .config import DiscoverySettings
 
 
+def openalex_api_key(env_file=Path(__file__).parents[2]/'.env'):
+    """OPENALEX_API_KEY from the environment, else from the repo .env."""
+    key=os.environ.get('OPENALEX_API_KEY','').strip()
+    if not key and env_file.is_file():
+        for line in env_file.read_text().splitlines():
+            name,_,value=line.partition('=')
+            if name.strip()=='OPENALEX_API_KEY':key=value.strip().strip('"\'')
+    return key
+
+
 @dataclass(frozen=True)
 class Paper:
     record: LiteratureRecord
@@ -24,13 +35,16 @@ class Paper:
 
 
 class ScholarProvider:
-    def __init__(self, *, http=http_get, sleep=time.sleep, pdf_text=pdf_text):
+    def __init__(self, *, http=http_get, sleep=time.sleep, pdf_text=pdf_text, api_key=None):
         self.http,self.sleep,self.pdf_text = http,sleep,pdf_text
+        self.api_key = openalex_api_key() if api_key is None else api_key
         self.last=0.0
 
     def get(self,url):
         # Host research utilities, never role agents, perform literature network access.
         if url.startswith('http://export.arxiv.org'):url=url.replace('http://','https://',1)
+        if url.startswith('https://api.openalex.org/') and self.api_key:
+            url+=('&' if '?' in url else '?')+urllib.parse.urlencode({'api_key':self.api_key})
         wait=.25-(time.monotonic()-self.last)
         if wait>0:self.sleep(wait)
         for attempt in range(3):
