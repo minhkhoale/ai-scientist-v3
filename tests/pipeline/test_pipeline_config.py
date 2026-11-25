@@ -651,6 +651,7 @@ def test_validate_reports_exact_error() -> None:
 
 ERROR_FRAGMENT_CASES: list[tuple[str, Mapping[str, object], str]] = [
     ("bad-agent", {"agent.name": "bogus"}, "agent.name"),
+    ("antigravity-reasoning-effort", {"agent.name": "antigravity", "agent.reasoning_effort": "high"}, "not supported for antigravity"),
     ("gemini-reasoning-effort", {"agent.name": "gemini", "agent.reasoning_effort": "high"}, "not supported for gemini"),
     *[
         (f"run-id-{run_id!r}", {"run_id": run_id}, "run_id must be one non-empty path component")

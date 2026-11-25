@@ -57,6 +57,7 @@ AGENT_CLI_BINARIES: dict[str, str] = {
     "cursor": "cursor-agent",
     "opencode": "opencode",
     "gemini": "gemini",
+    "antigravity": "agy",
     "pi": "pi",
 }
 # Agent name -> credential variables that satisfy it (any one is enough). An
@@ -71,6 +72,7 @@ AGENT_CREDENTIAL_ENV: dict[str, tuple[str, ...]] = {
     ),
     "codex": ("CODEX_API_KEY", "OPENAI_API_KEY"),
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "antigravity": (),
     "cursor": ("CURSOR_API_KEY",),
     "opencode": (),
     "pi": (),
@@ -396,6 +398,14 @@ def check_selected_credentials(host: Host, cfg: PipelineConfig) -> CheckResult:
             WARN,
             "codex: no API key and no ~/.codex login",
             hint="run `codex login`, or set CODEX_API_KEY or OPENAI_API_KEY",
+        )
+    if agent == "antigravity":
+        auth_file = Path(str(cfg.container.auth_root)).expanduser() / ".gemini/antigravity-cli/antigravity-oauth-token"
+        if auth_file.is_file():
+            return CheckResult("credentials", OK, f"antigravity: OAuth token under {auth_file.parent}")
+        return CheckResult(
+            "credentials", WARN, f"antigravity: no OAuth token at {auth_file}",
+            hint="sign in with the Antigravity CLI or configure the container auth root",
         )
     if not names:
         return CheckResult(

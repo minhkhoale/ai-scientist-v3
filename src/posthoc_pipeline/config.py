@@ -10,7 +10,6 @@ from typing import Optional
 
 from src.investigation.config import (
     PROFILE_MODEL_ERROR,
-    GEMINI_REASONING_EFFORT_ERROR,
     VALID_REASONING_EFFORTS,
     AgentConfig,
     ContainerConfig,
@@ -137,8 +136,8 @@ def validate_posthoc_config(cfg: PosthocPipelineConfig) -> list[str]:
         and cfg.agent.reasoning_effort not in VALID_REASONING_EFFORTS
     ):
         errors.append(f"agent.reasoning_effort must be one of {VALID_REASONING_EFFORTS}")
-    if cfg.agent.name == "gemini" and cfg.agent.reasoning_effort is not None:
-        errors.append(GEMINI_REASONING_EFFORT_ERROR)
+    if cfg.agent.name in {"gemini", "antigravity"} and cfg.agent.reasoning_effort is not None:
+        errors.append(f"agent.reasoning_effort is not supported for {cfg.agent.name}")
 
     if cfg.logging.format not in {"human", "json"}:
         errors.append(

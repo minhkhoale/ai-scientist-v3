@@ -139,6 +139,12 @@ _INVALID_CONFIG_CASES = [
         False,
     ),
     (
+        "antigravity-reasoning-effort",
+        {"agent.name": "antigravity", "agent.reasoning_effort": "medium"},
+        "not supported for antigravity",
+        False,
+    ),
+    (
         "profile-without-model",
         {"agent.name": "codex", "agent.profile": "custom"},
         "agent.model is required when agent.profile is provided",

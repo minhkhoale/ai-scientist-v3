@@ -1165,10 +1165,10 @@ def build_agent_command(
         raise ValueError("agent_profile is only supported for codex")
     if profile and not model:
         raise ValueError("agent_model is required when agent_profile is provided")
-    if agent not in {"claude", "codex", "cursor", "opencode", "gemini", "pi"}:
+    if agent not in {"claude", "codex", "cursor", "opencode", "gemini", "antigravity", "pi"}:
         raise ValueError(f"unsupported agent: {agent}")
-    if agent == "gemini" and reasoning_effort:
-        raise ValueError("reasoning_effort is not supported for gemini")
+    if agent in {"gemini", "antigravity"} and reasoning_effort:
+        raise ValueError(f"reasoning_effort is not supported for {agent}")
     cmd = ["env", "HEADLESS_MODELS_DEV_CACHE="]
     cmd.extend(
         [
@@ -1189,7 +1189,7 @@ def build_agent_command(
         cmd.extend(["--profile", profile])
     if reasoning_effort:
         cmd.extend(["--reasoning-effort", reasoning_effort])
-    if agent in {"claude", "codex", "gemini"}:
+    if agent in {"claude", "codex", "gemini", "antigravity"}:
         cmd.extend(["--prompt-file", prompt_file])
     else:
         cmd.extend(
