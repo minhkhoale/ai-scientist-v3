@@ -39,3 +39,15 @@ Create `driver.py`, `report.py`, `cli.py`, docs and end-to-end tests; add only `
 ## Verification and review focus
 
 Run `env -u HEADLESS_BILLING .venv/bin/python -m pytest -q tests/research_discovery tests/ideation` and Ruff after each phase. Check protected-file hashes before each commit; explicitly stage only owned files. Final review covers source/citation spoofing, review claims mistaken for independently verified findings, failed/empty counter-search, crash checkpoints and ranking unsupported gaps. No live integration validation; provider/model availability and semantic quote entailment remain explicit limitations rather than claims of proof.
+
+## Execution record
+
+- Phase 1: `89d46b0` — retrieval/ingestion/extraction; 113 combined tests passed.
+- Phase 2: `7865c3a` — distinct source-linked gap hypotheses; 117 combined tests passed.
+- Phase 3: `00b9342` — independent verification and counterevidence; 121 combined tests passed.
+- Phase 4: `3971c69` — justified value axes and deterministic ranking; 130 combined tests passed.
+- Phase 5: end-to-end driver, reporting, CLI and boundary/resume regression coverage. Final combined suite: 151 passing tests; Ruff clean; Mypy clean across 459 files with ignored local `tasks/` excluded.
+- Final integration corrections cover duplicate scientific sources, PDF section provenance, LaTeX citation notes, manuscript-only identifier seeds, partial JSON recovery, frozen verification contexts, offline/zero-budget searches, bounded role contexts, and unknown inline handoff citations.
+- Interface ruling: the protected `parse_gaps` requires 3–8 supported gaps. Export at most eight; export fewer honestly with `proposal_handoff_ready=false` rather than invent evidence.
+- Packaging ruling: the spec's external-edit whitelist excludes `pyproject.toml`. Source/editable usage is supported; adding the new package to the repository's explicit wheel list remains a follow-up packaging change.
+- No real agents or network calls were run. No external reference code was copied. All 16 pre-existing protected files passed byte-for-byte hash checks. No push.

@@ -44,9 +44,21 @@ class Steps:
                 raise ValidationError('completed step inputs differ: '+step)
             return validate(saved['output'])
         directory.mkdir(parents=True,exist_ok=True)
+        request=directory/'request.json'
+        if request.exists() and read_json(request)['input_sha256']!=key:
+            raise ValidationError('unfinished step inputs differ: '+step)
+        write_json(request,{'input_sha256':key})
         output = directory/'candidate.json'
-        raw = read_json(output) if output.exists() else self.run_role_fn(name,prompt,out_dir=directory,
-            agent=selected,timeout_seconds=getattr(self,'timeout',1800),container=None)
+        raw=None
+        if output.exists():
+            try:raw=read_json(output)
+            except ValueError:
+                output.rename(directory/'partial_output.txt')
+            if raw is not None and not isinstance(raw,dict):
+                write_json(directory/'invalid_output.json',raw);output.unlink();raw=None
+        if raw is None:
+            raw=self.run_role_fn(name,prompt,out_dir=directory,agent=selected,
+                timeout_seconds=getattr(self,'timeout',1800),container=None)
         if not isinstance(raw,dict):
             raise ValidationError('role failed or did not return an object: '+name)
         try:

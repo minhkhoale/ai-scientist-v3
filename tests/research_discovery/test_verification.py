@@ -54,3 +54,27 @@ def test_independent_search_and_role_resume(tmp_path):
     assert v.verdict=='already_resolved' and len(provider.calls)==2
     verify_gap(g,docs,**kw)
     assert calls==['verify'] and len(provider.calls)==2 and len(new)==len(docs)
+
+
+def test_finished_uncertain_verification_does_not_repeat_failed_search(tmp_path):
+    docs,claims=corpus();g=discover_gaps({'gaps':[gap(claims)]},claims,docs).gaps[0]
+    class Provider:
+        def __init__(self):self.calls=0
+        def search(self,*a):self.calls+=1;raise OSError('rate limited')
+    p=Provider();calls=[]
+    def role(*args,**kw):calls.append('verify');return {**raw('open',docs),'counter_evidence':[],'resolving_sources':[]}
+    steps=Steps(tmp_path/'steps',RoleAgent('codex'),role)
+    kw=dict(provider=p,steps=steps,out=tmp_path,settings=DiscoverySettings())
+    first,_=verify_gap(g,docs,**kw);assert first.verdict=='uncertain'
+    second,_=verify_gap(g,docs,**kw)
+    assert second==first and p.calls==2 and calls==['verify']
+
+
+def test_zero_search_budget_is_unavailable_verification(tmp_path):
+    docs,claims=corpus();g=discover_gaps({'gaps':[gap(claims)]},claims,docs).gaps[0]
+    class Provider:
+        def search(self,*a):pytest.fail('disabled verification search was called')
+    def role(*args,**kw):return {**raw('open',docs),'counter_evidence':[],'resolving_sources':[]}
+    steps=Steps(tmp_path/'steps',RoleAgent('codex'),role)
+    v,_=verify_gap(g,docs,provider=Provider(),steps=steps,out=tmp_path,settings=DiscoverySettings(search_limit=0))
+    assert v.verdict=='uncertain' and all(s.status=='skipped' for s in v.searches)

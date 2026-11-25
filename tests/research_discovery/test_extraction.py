@@ -61,3 +61,27 @@ def test_numeric_review_references_resolve_to_seed(tmp_path):
     docs=load_inputs([papers],review)
     p=next(d for d in docs if d.origin=='manuscript').passages[0]
     assert p.citations==(docs[0].record.id,)
+
+
+def test_duplicate_papers_do_not_count_as_independent_sources(tmp_path):
+    papers=tmp_path/'papers';papers.mkdir()
+    for key in ('a','b'):(papers/(key+'.md')).write_text('# Same paper\n\nA limitation.')
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA claim [@a; @b].')
+    docs=load_inputs([papers],review)
+    assert len([d for d in docs if d.origin=='paper'])==1
+    assert len(docs[-1].passages[0].citations)==1
+
+
+def test_pdf_section_and_paragraph_are_retained(tmp_path):
+    pdf=tmp_path/'paper.pdf';pdf.write_bytes(b'%PDF-')
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA claim.')
+    docs=load_inputs([pdf],review,pdf_text=lambda p:'1 Introduction\n\nA finding.\n\n2 Limitations\n\nA limitation.')
+    assert docs[0].passages[1].section=='2 Limitations'
+    assert docs[0].passages[1].paragraph==1
+
+
+def test_latex_citation_notes_and_emails_do_not_corrupt_citations(tmp_path):
+    bib=tmp_path/'papers.bib';bib.write_text('@article{smith, title={A method}, url={https://example.org/a}}')
+    review=tmp_path/'review.tex';review.write_text('\\section{Limits}\nContact a@example.org. A limitation \\citep[Section 2]{smith}.')
+    docs=load_inputs([bib],review);p=docs[-1].passages[0]
+    assert p.citations==(docs[0].record.id,) and not p.unresolved

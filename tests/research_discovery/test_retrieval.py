@@ -75,3 +75,50 @@ def test_identifier_seed_fetches_available_fulltext(tmp_path):
     docs=retrieve(topic='Topic',papers=['2501.12345'],manuscript=review,out=tmp_path/'out',provider=Provider())
     seed=next(d for d in docs if d.origin=='paper')
     assert seed.fulltext_status=='fulltext_pdf' and 'concrete limitation' in seed.passages[0].text
+
+
+def test_partial_role_output_is_retried_and_finished_file_is_recovered(tmp_path):
+    calls=[]
+    def role(name,prompt,**kwargs):calls.append(name);return {'ok':True}
+    steps=Steps(tmp_path,RoleAgent('codex'),role)
+    directory=tmp_path/'partial';directory.mkdir();(directory/'candidate.json').write_text('{')
+    assert steps.run('extract','partial','p',lambda r:r)=={'ok':True}
+    complete=tmp_path/'finished';complete.mkdir();(complete/'candidate.json').write_text('{"ok": true}')
+    assert steps.run('extract','finished','p',lambda r:r)=={'ok':True}
+    assert calls==['extract']
+
+
+def test_native_role_reuses_transport_without_registering_roles(monkeypatch,tmp_path):
+    from src.research_discovery import artifacts
+    seen=[]
+    def runner(name,prompt,**kwargs):seen.append((name,prompt));return {'claims':[]}
+    monkeypatch.setattr(artifacts,'run_role',runner)
+    assert artifacts.native_role('extract','discovery prompt',out_dir=tmp_path)=={'claims':[]}
+    assert seen==[('generate','discovery prompt')]
+
+
+def test_manuscript_identifiers_seed_papers_before_expansion(tmp_path):
+    from src.research_discovery.providers import Paper
+    from src.research_discovery.ingest import make_record
+    class Provider:
+        def __init__(self):self.calls=[]
+        def lookup(self,id):
+            self.calls.append(id)
+            return Paper(make_record({'title':'Paper cited only by review','url':'https://doi.org/10.1234/review-only','abstract':'A limitation.'}))
+        def search(self,*a):return []
+        def expand(self,*a):return []
+        def fulltext(self,*a):return ''
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA limitation [@only].\n\n## References\n- [@only] Paper cited only by review. https://doi.org/10.1234/review-only')
+    provider=Provider();docs=retrieve(topic='Topic',papers=[],manuscript=review,out=tmp_path/'out',provider=provider)
+    paper=next(d for d in docs if d.origin=='paper');manuscript=next(d for d in docs if d.origin=='manuscript')
+    assert manuscript.passages[0].citations==(paper.record.id,)
+    assert provider.calls==['doi:10.1234/review-only']
+
+
+def test_offline_identifier_input_does_not_access_network(tmp_path):
+    from src.research_discovery.config import DiscoverySettings
+    class Provider:
+        def lookup(self,id):pytest.fail('offline lookup attempted network')
+    review=tmp_path/'review.md';review.write_text('# R\n\nA claim.')
+    with pytest.raises(ValidationError,match='offline'):
+        retrieve(topic='Topic',papers=['2501.12345'],manuscript=review,out=tmp_path/'out',provider=Provider(),settings=DiscoverySettings(offline=True))

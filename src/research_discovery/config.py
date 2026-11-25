@@ -10,11 +10,13 @@ class DiscoverySettings:
     max_gaps: int = 12
     passage_chars: int = 3500
     extraction_batch: int = 8
+    max_discovery_claims: int = 160
+    context_passages: int = 48
     role_timeout: int = 1800
     offline: bool = False
 
     def __post_init__(self):
-        for key in ('search_limit','expansion_limit','max_papers','max_gaps','passage_chars','extraction_batch','role_timeout'):
+        for key in ('search_limit','expansion_limit','max_papers','max_gaps','passage_chars','extraction_batch','max_discovery_claims','context_passages','role_timeout'):
             value = getattr(self,key)
             if type(value) is not int or value < (0 if key in ('search_limit','expansion_limit') else 1):
                 raise ValueError('invalid '+key)

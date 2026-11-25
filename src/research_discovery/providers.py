@@ -121,12 +121,25 @@ def retrieve(*,topic,papers,manuscript,out,provider=None,settings=DiscoverySetti
         result=fn();write_json(path,result);return result
     looked_up={}
     def lookup(value):
-        raw=cached('lookup_'+digest(value),lambda:asdict(provider.lookup(value)))
+        def fetch_lookup():
+            if settings.offline:raise ValidationError('offline mode requires local paper metadata')
+            return asdict(provider.lookup(value))
+        raw=cached('lookup_'+digest(value),fetch_lookup)
         paper=paper_from_dict(raw)
         looked_up[(paper.record.title,paper.record.url)]=paper
         return paper
-    docs=load_inputs(papers,manuscript,lookup=lookup,max_chars=settings.passage_chars)
-    errors=[];seen={d.record.id for d in docs};additional=[]
+    errors=[];derived=[]
+    review_path=Path(manuscript)
+    review_text=pdf_text(review_path) if review_path.suffix.lower()=='.pdf' else review_path.read_text()
+    identifiers=['doi:'+id.rstrip('.,;]') for id in re.findall(r'(?:https?://(?:dx\.)?doi\.org/|doi:\s*)(10\.\d{4,9}/[^\s<>"\]]+)',review_text,re.I)]
+    identifiers+=['arxiv:'+id for id in re.findall(r'(?:arxiv:\s*|https?://arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}(?:v\d+)?)',review_text,re.I)]
+    if not settings.offline:
+        for value in dict.fromkeys(identifiers):
+            while value.endswith(')') and value.count(')')>value.count('('):value=value[:-1]
+            try:lookup(value);derived.append(value)
+            except (OSError,ValueError,KeyError,ET.ParseError) as exc:errors.append({'step':'manuscript_reference','error':str(exc)})
+    docs=load_inputs([*papers,*derived],manuscript,lookup=lookup,max_chars=settings.passage_chars)
+    seen={d.record.id for d in docs};additional=[]
     def run_query(name,fn):
         try:return [paper_from_dict(p) for p in cached(name,lambda:[asdict(p) for p in fn()])]
         except (OSError,ValueError,KeyError,ET.ParseError) as exc:

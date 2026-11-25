@@ -26,6 +26,7 @@ Commands:
   investigate  Run the investigation loop alone: agsci investigate [HYDRA_OVERRIDES...]
   doctor       Check this host for the tools, images, and GPUs the pipeline needs
   inspect      Build and serve the run inspector web UI: agsci inspect [build|start|dev]
+  discover     Identify and verify evidence-grounded research gaps
   propose      Rank research proposals and select ideas for execution
   literature   Build a frozen literature corpus: agsci literature build --help
   review       Review a paper PDF with the OpenAI-backed reviewer: agsci review <paper.pdf> [--output review.json]
@@ -71,6 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         from src.agsci import inspector
 
         return inspector.main(rest)
+    if command == "discover":
+        from src.research_discovery import cli as discovery_cli
+
+        return discovery_cli.main(rest)
     if command == "propose":
         from src.ideation.proposal import cli
 

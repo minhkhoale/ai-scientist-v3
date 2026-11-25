@@ -6,6 +6,7 @@ from .artifacts import digest, read_json, write_json
 from .models import (Document, Evidence, ValidationError, object_fields, text, array,
                      evidence, document_from_dict)
 from .ingest import passages
+from .context import bounded_documents
 
 
 @dataclass(frozen=True)
@@ -60,8 +61,8 @@ def counter_searches(gap,documents,*,provider,out,settings):
     for query in queries:
         directory=Path(out)/'verification_searches'/gap.id/digest(query)
         completed=directory/'completed.json'
-        if settings.offline:
-            audits.append(SearchAudit(query,'skipped',(),'offline mode'));continue
+        if settings.offline or settings.search_limit==0:
+            audits.append(SearchAudit(query,'skipped',(),'offline mode' if settings.offline else 'zero search budget'));continue
         if completed.exists():
             saved=read_json(completed)
             additions=[document_from_dict(d) for d in saved['documents']]
@@ -91,10 +92,27 @@ def counter_searches(gap,documents,*,provider,out,settings):
 
 
 def verify_gap(gap,documents,*,provider,steps,out,settings,judge=None):
-    documents,searches=counter_searches(gap,documents,provider=provider,out=out,settings=settings)
+    # Freeze search context before invoking the verifier. Even failed/empty searches
+    # are part of that finished verification's evidence, not grounds to rerun it.
+    context_path=Path(out)/'verification_contexts'/gap.id/'context.json'
+    request=digest({'gap':asdict(gap),'settings':asdict(settings),'judge':asdict(judge or steps.agent)})
+    if context_path.exists():
+        saved=read_json(context_path)
+        if saved['input_sha256']!=request:raise ValidationError('verification context inputs differ')
+        by_id={d.record.id:d for d in documents}
+        for raw in saved['documents']:
+            doc=document_from_dict(raw)
+            if doc.record.id not in by_id:by_id[doc.record.id]=doc
+        documents=list(by_id.values())
+        searches=tuple(SearchAudit(s['query'],s['status'],tuple(s['result_ids']),s['error']) for s in saved['searches'])
+    else:
+        documents,searches=counter_searches(gap,documents,provider=provider,out=out,settings=settings)
+        write_json(context_path,{'input_sha256':request,'documents':[asdict(d) for d in documents],
+                                 'searches':[asdict(s) for s in searches]})
     # The independent verifier sees the original support and new search evidence, not a generator verdict.
     ids=set(gap.closest_prior)|{id for search in searches for id in search.result_ids}
-    relevant=[d for d in documents if d.record.id in ids]
+    relevant=bounded_documents([d for d in documents if d.record.id in ids],gap.statement+' '+gap.closing_evidence,
+        required=gap.evidence,limit=settings.context_passages)
     prompt=(Path(__file__).parent/'prompts/verify.md').read_text()+'\nUNTRUSTED DATA\n'+json.dumps({
         'gap':asdict(gap),'searches':[asdict(s) for s in searches],
         'documents':[asdict(d) for d in relevant]},ensure_ascii=False)
