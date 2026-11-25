@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 import json
+import logging
 import math
 from pathlib import Path
 import re
@@ -14,9 +15,11 @@ from .discovery import Hypothesis
 from .graph import (GraphNode, ResearchGraph, canonicalize, detect_gaps,
                     namespace_fragment, parse_fragment, rank_relevance, select_sections)
 from .models import Evidence, ValidationError, identifier, object_fields, text
-from .providers import retrieve
+from .providers import Paper, retrieve
 from .report import FORMULA
 from .verification import verify_gap
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -59,9 +62,13 @@ def _merge_graphs(graphs):
     for graph in graphs:
         for node in graph.nodes:
             prior = nodes.get(node.id)
-            if prior and prior != node:
-                raise ValidationError('conflicting graph node id across extraction steps: ' + node.id)
-            nodes[node.id] = node
+            if prior:
+                if (prior.type, prior.name, prior.paper_id) != (node.type, node.name, node.paper_id):
+                    raise ValidationError('conflicting graph node id across extraction steps: ' + node.id)
+                nodes[node.id] = replace(prior, aliases=tuple(dict.fromkeys((*prior.aliases, *node.aliases))),
+                                         tier=prior.tier or node.tier)
+            else:
+                nodes[node.id] = node
         for edge in graph.edges:
             edges[edge.id] = edge
         dropped.extend(graph.dropped)
@@ -177,12 +184,12 @@ def _gap(candidate, graph, family):
         candidate.pattern, family, candidate.node_ids, candidate.edge_ids)
 
 
-def integrate_targeted_read(graph, fragment, candidate):
+def integrate_targeted_read(graph, fragment, candidate, *, topic_settings=()):
     """Merge a targeted fragment and indicate whether the exact structural pattern survives."""
     updated = _merge_graphs((graph, fragment))
     still_present = any(item.pattern == candidate.pattern and
                         set(item.node_ids) & set(candidate.node_ids)
-                        for item in detect_gaps(updated))
+                        for item in detect_gaps(updated, topic_settings=topic_settings))
     return updated, still_present
 
 
@@ -235,11 +242,11 @@ def _report(out, topic, graph, relevance, gaps, verifications, assessments, rank
             edge = next((edge for edge in graph.edges if edge.id == edge_id), None)
             if edge is None:
                 continue
-            doc = next((d for d in documents if d.record.id == edge.source_paper), None)
             for span in edge.evidence:
+                doc = next((d for d in documents if d.record.id == span.source), None)
                 passage = next((p for p in doc.passages if p.id == span.passage), None) if doc else None
                 if passage:
-                    lines += [f'- Evidence [{edge.source_paper}], {doc.record.title}, {passage.section}, paragraph {passage.paragraph}:',
+                    lines += [f'- Evidence [{span.source}], {doc.record.title}, {passage.section}, paragraph {passage.paragraph}:',
                               '> ' + span.quote.replace('\n', '\n> ')]
         lines += ['', 'Independent searches:']
         lines.extend(f'- {search.query}: {search.status}; results: {", ".join(search.result_ids) or "none"}'
@@ -325,6 +332,8 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     with ThreadPoolExecutor(max_workers=settings.parallel) as executor:
         fragments = list(executor.map(extract_job, jobs))
     graph = _merge_graphs(fragments)
+    for issue in graph.dropped:
+        LOGGER.warning('%s', issue)
     # Paper records are explicit graph nodes with relevance tiers.
     paper_nodes = [GraphNode(d.record.id, 'paper', d.record.title, (), d.record.id, tier[d.record.id]) for d in papers_by_id.values()]
     merged_nodes = {node.id: node for node in graph.nodes}
@@ -342,27 +351,47 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     families = _families(accepted)
     gaps = [gap for candidate, family in zip(accepted, families) if (gap := _gap(candidate, graph, family))]
     # Targeted reads inspect methods/results only for abstract-tier sources supporting each candidate.
+    targeted_fulltext_errors = []
     for gap in list(gaps):
         source_ids = {edge.source_paper for edge in graph.edges if edge.id in gap.graph_edge_ids and
                       tier.get(edge.source_paper) == 'abstract'}
         targeted_docs = []
         for source_id in sorted(source_ids)[:settings.max_targeted_papers]:
             doc = papers_by_id[source_id]
-            full = provider.fulltext(type('PaperRef', (), {'record': doc.record, 'fulltext_url': ''})(), out / 'targeted')
+            try:
+                full = provider.fulltext(Paper(doc.record), out / 'targeted')
+            except (OSError, ValueError) as exc:
+                LOGGER.warning('Targeted full-text retrieval failed for %s: %s', source_id, exc)
+                targeted_fulltext_errors.append({'source': source_id, 'error': str(exc)})
+                full = ''
             if full:
                 from .ingest import passages
-                full_doc = replace(doc, passages=passages(full, source_id, max_chars=settings.passage_chars))
+                full_doc = replace(doc, passages=passages(full, source_id, max_chars=settings.passage_chars),
+                                   fulltext_status='fulltext_pdf')
                 selected = tuple(p for p in full_doc.passages if any(word in p.section.casefold() for word in ('method', 'result')))
                 targeted_docs.append(replace(full_doc, passages=selected))
             else:
                 targeted_docs.append(replace(doc, passages=tuple(p for p in doc.passages if any(w in p.section.casefold() for w in ('method', 'result')))))
         if not targeted_docs:
             continue
-        prompt = _prompt('graph_extract', {'topic': topic, 'gap': asdict(gap), 'documents': [asdict(d) for d in targeted_docs]})
+        for targeted_doc in targeted_docs:
+            old = papers_by_id[targeted_doc.record.id]
+            passage_map = {p.id: p for p in (*old.passages, *targeted_doc.passages)}
+            updated_doc = replace(old, passages=tuple(passage_map.values()),
+                                  fulltext_status=targeted_doc.fulltext_status)
+            papers_by_id[targeted_doc.record.id] = updated_doc
+            documents = [updated_doc if d.record.id == updated_doc.record.id else d for d in documents]
+        known_node_ids = set(gap.graph_node_ids)
+        known_nodes = [asdict(node) for node in graph.nodes if node.id in known_node_ids]
+        prompt = _prompt('graph_extract', {'topic': topic, 'gap': asdict(gap),
+            'known_nodes': known_nodes, 'documents': [asdict(d) for d in targeted_docs]})
         extra = steps.run('targeted_read', 'targeted_' + gap.id, prompt,
                           lambda raw: parse_fragment(raw, targeted_docs))
+        for issue in extra.dropped:
+            LOGGER.warning('%s', issue)
         graph, survives = integrate_targeted_read(graph, extra,
-            type('Candidate', (), {'pattern': gap.pattern, 'node_ids': gap.graph_node_ids})())
+            type('Candidate', (), {'pattern': gap.pattern, 'node_ids': gap.graph_node_ids})(),
+            topic_settings=tuple(w.casefold() for w in re.findall(r'[A-Za-z]{4,}', topic)))
         if not survives:
             gaps.remove(gap)
     verifications, assessments = {}, {}
@@ -382,7 +411,11 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     records = [d.record for d in documents if d.origin == 'paper']
     build_corpus(out / 'corpus', ['folder:discovery-final-snapshot'], require_nonempty=True,
                  fetchers={'folder': lambda _: records})
+    write_json(out / 'documents.json', {'documents': [asdict(d) for d in documents]})
     audit = read_json(out / 'retrieval/search_audit.json')
+    audit['targeted_fulltext_errors'] = targeted_fulltext_errors
+    audit['verification_searches'] = {gap_id: [asdict(search) for search in verification.searches]
+                                      for gap_id, verification in verifications.items()}
     report, handoff_count = _report(out, topic, graph, relevance, gaps, verifications, assessments,
                                     ranked, documents, audit)
     write_json(out / 'status.json', {'state': 'completed' if ranked else 'no_supported_gaps',
