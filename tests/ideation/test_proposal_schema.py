@@ -62,3 +62,26 @@ def test_plan_and_scan(tmp_path):
     scan=parse_codebase(dict(summary='Model',entrypoints=[{'path':'main.py','purpose':'Run'},
          {'path':'../bad','purpose':'bad'}],components=[],extension_points=[]),tmp_path)
     assert len(scan['entrypoints'])==1
+
+
+def gap(gid, *cites):
+    return dict(id=gid, statement='No method does X', sub_problem='credit', why_open='Needs Y',
+                closing_evidence='Z improves', closest_prior=[cites[0], 'Lfake'],
+                evidence=[{'citation':c,'finding':'Leaves X open'} for c in cites])
+
+
+def test_gaps_need_two_supplied_papers():
+    from src.ideation.proposal.schema import parse_gaps
+    allowed={'L1','L2'}
+    raw={'gaps':[gap('G1','L1','L2'),gap('G2','L1','L2'),gap('G3','L2','L1'),gap('G4','L1','Lfake'),gap('G1','L1','L2')]}
+    gaps=parse_gaps(raw,allowed)
+    assert [g['id'] for g in gaps]==['G1','G2','G3'] and gaps[0]['closest_prior']==['L1']
+    raw['gaps']=raw['gaps'][:2]
+    with pytest.raises(RoleOutputError): parse_gaps(raw,allowed)
+
+
+def test_proposal_must_name_a_known_gap():
+    raw=proposal()
+    with pytest.raises(RoleOutputError): normalize_proposal(raw,cycle=1,codebase_root=None,gap_ids=frozenset({'G1'}))
+    raw['gap_id']='G1'
+    assert normalize_proposal(raw,cycle=1,codebase_root=None,gap_ids=frozenset({'G1'}))['gap_id']=='G1'

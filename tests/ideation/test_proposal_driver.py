@@ -100,3 +100,25 @@ def test_role_script_accepts_every_role_output_file():
     script = (Path(__file__).parents[2] / 'src/scripts/ideation_role.sh').read_text()
     allowed = set(re.search(r'case "\$EXPECTED_OUTPUT" in ([^)]+)\)', script)[1].split('|'))
     assert set(OUTPUT_FILE.values()) <= allowed
+
+
+def test_gaps_are_mapped_before_generation_and_ideas_target_them(tmp_path):
+    from src.ideation.literature.sources import LiteratureRecord
+    from tests.ideation.test_proposal_schema import gap
+    base,calls=fake_proposal_roles(); prompts={}
+    def run(name,prompt,**kwargs):
+        prompts.setdefault(name,prompt)
+        if name=='gap_analysis':
+            calls.append((name,kwargs['out_dir']))
+            return {'gaps':[gap(g,'L1','L2') for g in ('G1','G2','G3')]}
+        raw=base(name,prompt,**kwargs)
+        if name.startswith('generate'): raw['gap_id']='G2'
+        return raw
+    corpus=[LiteratureRecord('L1','One'),LiteratureRecord('L2','Two')]
+    run_proposal(**{**args(tmp_path,run),'corpus':corpus})
+    names=[n for n,_ in calls]
+    assert names.index('gap_analysis') < names.index('generate')
+    assert 'G1: No method does X' in prompts['generate'] and 'literature_gaps' in prompts['reflect']
+    assert json.loads((tmp_path/'gaps.json').read_text())['gaps'][0]['id']=='G1'
+    rows=[json.loads(r) for r in (tmp_path/'proposals.jsonl').read_text().splitlines()]
+    assert rows and all(r['bundle']['gap_id']=='G2' for r in rows)

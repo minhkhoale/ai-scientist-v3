@@ -58,7 +58,33 @@ def parse_codebase(raw, root: Path):
     return result
 
 
-def normalize_proposal(raw, *, cycle, codebase_root: Path | None):
+def parse_gaps(raw, allowed):
+    """Keep only gaps the supplied literature evidences with at least two papers."""
+    rows = _object(raw).get('gaps')
+    if not isinstance(rows, list): raise RoleOutputError('gaps must be a list')
+    gaps = []
+    for row in rows:
+        _object(row)
+        gap = {key: _string(row.get(key), key) for key in
+               ('id','statement','sub_problem','why_open','closing_evidence')}
+        evidence = row.get('evidence')
+        if not isinstance(evidence, list): raise RoleOutputError('evidence must be a list')
+        gap['evidence'] = [{'citation': e['citation'], 'finding': _string(e.get('finding'), 'finding')}
+                           for e in map(_object, evidence) if e.get('citation') in allowed]
+        gap['closest_prior'] = [c for c in _strings(row.get('closest_prior', []), 'closest_prior') if c in allowed]
+        if len({e['citation'] for e in gap['evidence']}) >= 2 and gap['id'] not in {g['id'] for g in gaps}:
+            gaps.append(gap)
+    if not 3 <= len(gaps) <= 8:
+        raise RoleOutputError('gap analysis needs 3-8 gaps each evidenced by two supplied papers')
+    return gaps
+
+
+def render_gap(gap):
+    evidence = '; '.join(f"[{e['citation']}] {e['finding']}" for e in gap['evidence'])
+    return f"{gap['id']}: {gap['statement']} Why open: {gap['why_open']} Evidence: {evidence} Closed when: {gap['closing_evidence']}"
+
+
+def normalize_proposal(raw, *, cycle, codebase_root: Path | None, gap_ids: frozenset[str] | None = None):
     _object(raw)
     result = {key: _string(raw.get(key), key) for key in
               ('title','statement','mechanism','anticipated_outcomes','novelty_argument')}
@@ -75,12 +101,16 @@ def normalize_proposal(raw, *, cycle, codebase_root: Path | None):
     result['rejected_touchpoints'] = len(paths) - len(result['codebase_touchpoints'])
     if codebase_root is not None and not result['codebase_touchpoints']:
         raise RoleOutputError('proposal needs an existing codebase touchpoint')
+    if gap_ids:
+        if raw.get('gap_id') not in gap_ids:
+            raise RoleOutputError('proposal must name the literature gap_id it closes')
+        result['gap_id'] = raw['gap_id']
     result['idea_id'] = 'cand_' + hashlib.sha1((result['title']+'\n'+result['statement']).encode()).hexdigest()[:10]
     return result
 
 
-def parse_proposal_candidate(raw, *, cycle, strategy, allowed, codebase_root=None):
-    bundle = normalize_proposal(raw, cycle=cycle, codebase_root=codebase_root)
+def parse_proposal_candidate(raw, *, cycle, strategy, allowed, codebase_root=None, gap_ids=None):
+    bundle = normalize_proposal(raw, cycle=cycle, codebase_root=codebase_root, gap_ids=gap_ids)
     citations, rejected = _citations(raw, allowed)
     bundle['rejected_citations'] = rejected
     parents = _strings(raw.get('parent_ids', []), 'parent_ids')

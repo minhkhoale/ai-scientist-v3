@@ -22,7 +22,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 [ -n "$AGENT" ] && [ -n "$OUTPUT_DIR" ] && [ -f "$PROMPT_FILE" ] || exit 2
-case "$EXPECTED_OUTPUT" in candidate.json|review.json|verdict.json|feedback.json|plan.json|codebase.json|overview.json) ;; *) exit 2;; esac
+case "$EXPECTED_OUTPUT" in candidate.json|review.json|verdict.json|feedback.json|plan.json|codebase.json|gaps.json|overview.json) ;; *) exit 2;; esac
 # Each role mounts a different workspace; never reuse a campaign container.
 unset AGENT_CONTAINER_SESSION_NAME
 CONTAINER_SESSION_NAME=""
