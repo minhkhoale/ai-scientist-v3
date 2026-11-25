@@ -69,11 +69,14 @@ def evidence(raw, documents):
         doc = next(d for d in documents if d.record.id == raw['source'])
         passage = next(p for p in doc.passages if p.id == raw['passage'])
         start, end = raw['start'], raw['end']
-        if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(passage.text):
-            raise ValidationError('invalid quote offsets')
         quote = text(raw['quote'])
+        if type(start) is not int or type(end) is not int:
+            raise ValidationError('invalid quote offsets')
         if passage.text[start:end] != quote:
-            raise ValidationError('quote differs from source span')
+            # Agents miscount characters; an exact quote that occurs once is re-anchored.
+            if passage.text.count(quote) != 1:
+                raise ValidationError('quote differs from source span')
+            start = passage.text.index(quote); end = start + len(quote)
         return Evidence(doc.record.id, passage.id, start, end, quote)
     except (ValidationError, StopIteration, TypeError, KeyError) as exc:
         raise UnsupportedEvidence('unsupported quote/source/passage') from exc
@@ -99,3 +102,14 @@ def document_from_dict(raw: dict[str, Any]) -> Document:
     record = dict(raw['record']);record['authors'] = tuple(record['authors'])
     passages = tuple(Passage(**{**p,'citations':tuple(p['citations']),'unresolved':tuple(p['unresolved'])}) for p in raw['passages'])
     return Document(LiteratureRecord(**record),raw['origin'],passages,tuple(raw['aliases']),raw['fulltext_status'])
+
+
+def supported_evidence(items, documents):
+    """Quote-checked spans from an agent list, skipping misquoted items instead of failing the step."""
+    spans = []
+    for item in array(items):
+        try:
+            spans.append(evidence(item, documents))
+        except UnsupportedEvidence:
+            continue
+    return tuple(spans)

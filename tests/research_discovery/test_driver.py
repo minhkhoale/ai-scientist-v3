@@ -47,6 +47,10 @@ def fake_roles(calls, *, kill=None):
             return {'nodes': nodes, 'edges': edges}
         if name == 'canonicalize':
             return {'clusters': data['clusters']}
+        if name == 'synthesize':
+            problem = next(n['id'] for n in (row['problem'] for row in data['roadmap']))
+            return {'gaps': [{'kind': 'shared_assumption', 'statement': 'Synthesized gap.', 'rationale': 'Several papers.',
+                              'node_ids': [problem, 'not_a_node']}]}
         if name == 'screen':
             return {'decisions': [{'candidate': i, 'rank': i + 1, 'accepted': True, 'reason': 'Supported pattern.'}
                                   for i, _ in enumerate(data['candidates'])]}
@@ -101,7 +105,7 @@ def test_graph_pipeline_resumes_after_interruption_without_repeating_finished_st
     before = list(calls)
     run_discovery(**{**kw, 'run_role_fn': fake_roles(calls)})
     assert calls[:len(before)] == before
-    assert calls.count('canonicalize') == 1
+    assert calls.count('canonicalize') == before.count('canonicalize')
 
 
 def test_targeted_read_can_remove_a_structural_gap():

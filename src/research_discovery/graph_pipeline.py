@@ -12,9 +12,9 @@ from .artifacts import Steps, read_json, write_json
 from .assessment import parse_assessment, rank_gaps
 from .context import bounded_documents
 from .discovery import Hypothesis
-from .graph import (GraphNode, ResearchGraph, canonicalize, detect_gaps,
+from .graph import (GapCandidate, GraphNode, ResearchGraph, canonicalize, detect_gaps,
                     namespace_fragment, parse_fragment, rank_relevance, select_sections)
-from .models import Evidence, ValidationError, identifier, object_fields, text
+from .models import Passage, Evidence, ValidationError, identifier, object_fields, text
 from .providers import Paper, retrieve
 from .report import FORMULA
 from .verification import verify_gap
@@ -63,9 +63,12 @@ def _merge_graphs(graphs):
         for node in graph.nodes:
             prior = nodes.get(node.id)
             if prior:
-                if (prior.type, prior.name, prior.paper_id) != (node.type, node.name, node.paper_id):
+                # Paper ids are corpus ids shared by every step; agents may title the same paper differently.
+                same = prior.type == node.type == 'paper' or (prior.type, prior.name, prior.paper_id) == (node.type, node.name, node.paper_id)
+                if not same:
                     raise ValidationError('conflicting graph node id across extraction steps: ' + node.id)
-                nodes[node.id] = replace(prior, aliases=tuple(dict.fromkeys((*prior.aliases, *node.aliases))),
+                extra = (node.name,) if node.name != prior.name else ()
+                nodes[node.id] = replace(prior, aliases=tuple(dict.fromkeys((*prior.aliases, *node.aliases, *extra))),
                                          tier=prior.tier or node.tier)
             else:
                 nodes[node.id] = node
@@ -75,32 +78,47 @@ def _merge_graphs(graphs):
     return ResearchGraph(tuple(nodes.values()), tuple(edges.values()), tuple(dropped))
 
 
-def _confirm_canonicalization(graph, steps, generator):
+CONCEPT_TYPES = ('problem', 'method', 'assumption', 'failure_condition', 'setting')
+
+
+def _confirm_canonicalization(graph, steps, generator, topic='', parallel=1):
+    """Merge same-concept nodes across extraction calls, one semantic role call per node type.
+
+    Extraction calls run independently and name the same concept differently, so string
+    similarity alone leaves the graph fragmented. Findings and papers are not merged.
+    """
     preliminary = canonicalize(graph)
-    # Send deterministic clusters to one strict role call. Its output may split clusters,
-    # but must partition the complete input node set exactly once.
-    clusters = []
-    consumed = set()
-    for node in preliminary.nodes:
-        aliases = {node.name, *node.aliases}
-        members = [n.id for n in graph.nodes if n.type == node.type and (n.id == node.id or n.name in aliases)]
-        clusters.append({'node_ids': members, 'canonical': node.id, 'name': node.name})
-        consumed.update(members)
-    for node in graph.nodes:
-        if node.id not in consumed:
-            clusters.append({'node_ids': [node.id], 'canonical': node.id, 'name': node.name})
-    raw = steps.run('canonicalize', 'canonicalize', _prompt('canonicalize', {'clusters': clusters}),
-                    lambda result: _validate_clusters(result, graph))
+    def job(kind):
+        members = [n for n in graph.nodes if n.type == kind]
+        if len(members) < 2:
+            return [{'node_ids': [n.id], 'canonical': n.id, 'name': n.name} for n in members]
+        clusters, consumed = [], set()
+        for node in preliminary.nodes:
+            if node.type != kind:
+                continue
+            aliases = {node.name, *node.aliases}
+            ids = [n.id for n in members if n.id not in consumed and (n.id == node.id or n.name in aliases)]
+            if ids:
+                clusters.append({'node_ids': ids, 'canonical': ids[0], 'name': node.name})
+                consumed.update(ids)
+        clusters += [{'node_ids': [n.id], 'canonical': n.id, 'name': n.name} for n in members if n.id not in consumed]
+        subset = ResearchGraph(tuple(members), (), ())
+        return steps.run('canonicalize', 'canonicalize_' + kind,
+                         _prompt('canonicalize', {'topic': topic, 'type': kind, 'clusters': clusters}),
+                         lambda result: _validate_clusters(result, subset), agent=generator)
+    with ThreadPoolExecutor(max_workers=parallel) as executor:
+        groups = [g for result in executor.map(job, CONCEPT_TYPES) for g in result]
     by_old = {n.id: n for n in graph.nodes}
-    remap, out_nodes = {}, []
-    for group in raw:
+    remap = {n.id: n.id for n in graph.nodes}
+    out_nodes = [n for n in graph.nodes if n.type not in CONCEPT_TYPES]
+    for group in groups:
         canonical_id = group['canonical']
-        node = by_old[canonical_id]
-        aliases = tuple(dict.fromkeys(by_old[item].name for item in group['node_ids'] if item != canonical_id))
-        out_nodes.append(replace(node, name=group['name'], aliases=aliases))
+        aliases = tuple(dict.fromkeys(name for item in group['node_ids'] if item != canonical_id
+                                      for name in (by_old[item].name, *by_old[item].aliases)))
+        out_nodes.append(replace(by_old[canonical_id], name=group['name'], aliases=aliases))
         remap.update({item: canonical_id for item in group['node_ids']})
-    edges = tuple(replace(edge, source=remap[edge.source], target=remap[edge.target]) for edge in graph.edges
-                  if remap[edge.source] != remap[edge.target])
+    edges = tuple(dict.fromkeys(replace(edge, source=remap[edge.source], target=remap[edge.target])
+                                for edge in graph.edges if remap[edge.source] != remap[edge.target]))
     return ResearchGraph(tuple(out_nodes), edges, graph.dropped)
 
 
@@ -123,6 +141,88 @@ def _validate_clusters(raw, graph):
     if seen != expected:
         raise ValidationError('canonicalization omitted graph nodes')
     return tuple(result)
+
+
+SCREEN_PER_PATTERN, SCREEN_TOTAL = 30, 120
+
+
+def _topic_settings(topic, graph, max_share=0.1):
+    """Topic words that pick out specific settings, not words that occur in most setting names."""
+    names = [n.name.casefold() for n in graph.nodes if n.type == 'setting']
+    words = dict.fromkeys(w.casefold() for w in re.findall(r'[A-Za-z][A-Za-z0-9-]{3,}', topic))
+    return tuple(w for w in words if names and 0 < sum(w in n for n in names) <= max_share * len(names))
+
+
+COVERAGE_PATTERNS = ('uncovered_combination', 'evaluation_gap')
+SYNTHESIS_KINDS = ('shared_assumption', 'unhandled_failure', 'conflicting_findings', 'unbridged_methods',
+                   'formulation_gap')
+
+
+def _synthesis_view(graph, problems=25, per_list=12):
+    """Per-problem summary of the graph with node ids, small enough for one synthesis call."""
+    nodes = {n.id: n for n in graph.nodes}
+    papers_of = {}
+    for e in graph.edges:
+        papers_of.setdefault(e.source, set()).add(e.source_paper)
+        papers_of.setdefault(e.target, set()).add(e.source_paper)
+    def item(node_id):
+        return {'id': node_id, 'name': nodes[node_id].name, 'papers': len(papers_of.get(node_id, ()))}
+    def targets(sources, kind):
+        ids = {e.target for e in graph.edges if e.type == kind and e.source in sources and e.target in nodes}
+        return [item(i) for i in sorted(ids, key=lambda i: (-len(papers_of.get(i, ())), i))[:per_list]]
+    ranked = sorted((n for n in graph.nodes if n.type == 'problem'),
+                    key=lambda n: (-len(papers_of.get(n.id, ())), n.id))[:problems]
+    view = []
+    for problem in ranked:
+        methods = {e.source for e in graph.edges if e.type == 'addresses' and e.target == problem.id and e.source in nodes}
+        source_papers = {e.source_paper for e in graph.edges if e.source in methods or e.target == problem.id}
+        findings = {e.target for e in graph.edges if e.type == 'reports' and e.source in source_papers and e.target in nodes}
+        view.append({'problem': item(problem.id),
+                     'methods': [item(m) for m in sorted(methods, key=lambda i: (-len(papers_of.get(i, ())), i))[:per_list]],
+                     'assumptions': targets(methods, 'assumes'), 'failure_conditions': targets(methods, 'fails_under'),
+                     'handled': targets(methods, 'handles'),
+                     'findings': [item(f) for f in sorted(findings, key=lambda i: (-len(papers_of.get(i, ())), i))[:per_list]]})
+    return view
+
+
+def _validate_synthesis(raw, graph):
+    object_fields(raw, ('gaps',))
+    if not isinstance(raw['gaps'], list):
+        raise ValidationError('synthesized gaps must be a list')
+    nodes = {n.id: n for n in graph.nodes}
+    result = []
+    for row in raw['gaps']:
+        object_fields(row, ('kind', 'statement', 'rationale', 'node_ids'))
+        if row['kind'] not in SYNTHESIS_KINDS:
+            raise ValidationError('unknown synthesized gap kind')
+        ids = [i for i in row['node_ids'] if isinstance(i, str) and i in nodes] if isinstance(row['node_ids'], list) else []
+        if not any(nodes[i].type == 'problem' for i in ids):
+            continue
+        cited = set(ids)
+        # Support = edges among cited nodes, plus paper-to-finding reports for cited findings.
+        edge_ids = [e.id for e in graph.edges if e.target in cited and
+                    (e.source in cited or nodes.get(e.source, GraphNode('', '', '')).type == 'paper')]
+        if edge_ids:
+            result.append(GapCandidate('synthesis:' + row['kind'],
+                                       text(row['statement']) + ' Rationale: ' + text(row['rationale']),
+                                       tuple(sorted(cited)), tuple(edge_ids)))
+    return result
+
+
+def _shortlist(candidates, graph, per_pattern, total):
+    """Keep the best-supported candidates of each pattern so screening fits one prompt."""
+    paper_of = {e.id: e.source_paper for e in graph.edges}
+    def support(c):
+        return (len({paper_of[e] for e in c.edge_ids if e in paper_of}), len(c.node_ids))
+    # Full tie-breaking keeps the screening prompt, and so its cache key, stable across processes.
+    def order(c):
+        papers, nodes = support(c)
+        return (-papers, -nodes, c.pattern, c.statement, c.node_ids, c.edge_ids)
+    by_pattern = {}
+    for c in sorted(candidates, key=order):
+        by_pattern.setdefault(c.pattern, []).append(c)
+    kept = [c for group in sorted(by_pattern.items()) for c in group[1][:per_pattern]]
+    return sorted(kept, key=order)[:total]
 
 
 def _validate_screen(raw, candidates):
@@ -291,6 +391,12 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
                          provider=provider, settings=settings, sources=sources)
     relevance = rank_relevance(topic, documents, settings.deep_papers)
     tier = {row.paper_id: row.tier for row in relevance}
+    # Give abstract-tier records without an abstract passage one, so every step can resolve its evidence.
+    documents = [replace(d, passages=(Passage(identifier('p_', d.record.id + '\nabstract'), 'Abstract', 1,
+                                              d.record.abstract.strip()), *d.passages))
+                 if d.origin == 'paper' and tier.get(d.record.id) == 'abstract' and d.record.abstract.strip()
+                 and not any('abstract' in p.section.casefold() for p in d.passages) else d
+                 for d in documents]
     write_json(out / 'relevance.json', {'papers': [asdict(row) for row in relevance]})
     steps = Steps(out / 'steps', generator, run_role_fn)
     steps.timeout = settings.role_timeout
@@ -303,14 +409,7 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
             deep.append(replace(doc, passages=select_sections(doc)))
         else:
             aps = [p for p in doc.passages if 'abstract' in p.section.casefold()]
-            if aps:
-                selected = tuple(aps[:1])
-            elif doc.record.abstract.strip():
-                from .models import Passage
-                selected = (Passage(identifier('p_', doc.record.id + '\nabstract'), 'Abstract', 1,
-                                    doc.record.abstract.strip()),)
-            else:
-                selected = ()
+            selected = tuple(aps[:1])
             abstract.append(replace(doc, passages=selected))
     manuscript_docs = [d for d in documents if d.origin == 'manuscript']
     manuscript_parts = [replace(d, passages=tuple(part)) for d in manuscript_docs
@@ -342,10 +441,22 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     merged_nodes = {node.id: node for node in graph.nodes}
     merged_nodes.update({node.id: node for node in paper_nodes})
     graph = ResearchGraph(tuple(merged_nodes.values()), graph.edges, graph.dropped)
-    graph = _confirm_canonicalization(graph, steps, generator)
+    graph = _confirm_canonicalization(graph, steps, generator, topic, settings.parallel)
     # Re-run detector set after targeted reading; each gap gets at most one cached role step.
-    candidates = list(detect_gaps(graph, topic_settings=tuple(w.casefold() for w in re.findall(r'[A-Za-z]{4,}', topic))))
-    screened = steps.run('screen', 'screen', _prompt('screen', {'topic': topic, 'candidates': [asdict(c) for c in candidates]}),
+    # Selective reading skips experiment sections, so "never evaluated on" patterns mostly reflect
+    # unread evaluations rather than missing work; screen only patterns selective reading supports.
+    candidates = [c for c in detect_gaps(graph, topic_settings=_topic_settings(topic, graph))
+                  if c.pattern not in COVERAGE_PATTERNS]
+    candidates = _shortlist(candidates, graph, SCREEN_PER_PATTERN, SCREEN_TOTAL)
+    view = _synthesis_view(graph)
+    synthesized = steps.run('synthesize', 'synthesize', _prompt('synthesize', {'topic': topic, 'roadmap': view}),
+                            lambda raw: _validate_synthesis(raw, graph), agent=generator)
+    candidates = [*synthesized, *candidates]
+    log(f'Screening {len(synthesized)} synthesized and {len(candidates) - len(synthesized)} structural candidates.')
+    screened = steps.run('screen', 'screen', _prompt('screen', {'topic': topic, 'candidates': [
+        {'candidate': i, 'pattern': c.pattern, 'statement': c.statement,
+         'supporting_papers': len({e.source_paper for e in graph.edges if e.id in set(c.edge_ids)})}
+        for i, c in enumerate(candidates)]}),
                          lambda raw: _validate_screen(raw, candidates), agent=judge)
     write_json(out / 'screen.json', {'decisions': [{'candidate': i, 'rank': rank,
         'accepted': ok, 'reason': reason, 'pattern': candidates[i].pattern,
@@ -389,13 +500,15 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
         prompt = _prompt('graph_extract', {'topic': topic, 'gap': asdict(gap),
             'known_nodes': known_nodes, 'documents': [asdict(d) for d in targeted_docs]})
         extra = steps.run('targeted_read', 'targeted_' + gap.id, prompt,
-                          lambda raw: parse_fragment(raw, targeted_docs))
+                          lambda raw: namespace_fragment(parse_fragment(
+                              raw, targeted_docs, [n for n in graph.nodes if n.id in known_node_ids]), 'targeted_' + gap.id))
         for issue in extra.dropped:
             LOGGER.warning('%s', issue)
         graph, survives = integrate_targeted_read(graph, extra,
             type('Candidate', (), {'pattern': gap.pattern, 'node_ids': gap.graph_node_ids})(),
-            topic_settings=tuple(w.casefold() for w in re.findall(r'[A-Za-z]{4,}', topic)))
-        if not survives:
+            topic_settings=_topic_settings(topic, graph))
+        # Synthesized gaps are not detector patterns, so only detector gaps are re-checked here.
+        if not survives and not gap.pattern.startswith('synthesis:'):
             gaps.remove(gap)
     verifications, assessments = {}, {}
     for gap in gaps:

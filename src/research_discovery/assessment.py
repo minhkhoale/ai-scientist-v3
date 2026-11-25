@@ -5,7 +5,7 @@ Weights are an explicit product heuristic, not an empirically validated value mo
 """
 from dataclasses import dataclass
 import math
-from .models import Evidence, ValidationError, array, evidence, object_fields, text
+from .models import supported_evidence, Evidence, ValidationError, object_fields, text
 from .discovery import ResearchGap
 from .verification import Verification
 
@@ -44,7 +44,7 @@ def parse_assessment(raw, *, gap_id, documents):
         score=obj['score']
         if isinstance(score,bool) or not isinstance(score,(int,float)) or not math.isfinite(score) or not 1<=score<=5:
             raise ValidationError('score must be finite, numeric and in [1,5]')
-        spans=tuple(evidence(e,documents) for e in array(obj['evidence']))
+        spans=supported_evidence(obj['evidence'],documents)
         if not spans or not any(e.source in papers for e in spans):
             raise ValidationError('each value judgment requires paper evidence')
         axes[name]=Axis(float(score),text(obj['rationale']),spans)

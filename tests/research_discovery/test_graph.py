@@ -132,3 +132,86 @@ def test_opposite_reported_results_on_same_method_and_setting_are_contradictory(
     no_shared_setting = tuple(edge for edge in edges if edge.id != 'e2')
     assert not any(g.pattern == 'contradiction' and 'f1' in g.node_ids and 'f2' in g.node_ids
                    for g in detect_gaps(ResearchGraph(nodes, no_shared_setting)))
+
+
+def test_manuscript_fragment_keeps_cited_paper_nodes_and_drops_others():
+    review = doc('Review', 'Cited work finds a result.', 'manuscript', ['Lcited'])
+    rid, passage = review.record.id, review.passages[0]
+    quote = {'source': rid, 'passage': passage.id, 'start': 0, 'end': 10, 'quote': passage.text[:10]}
+    raw = {'nodes': [{'id': 'Lcited', 'type': 'paper', 'name': 'Cited'},
+                     {'id': 'Lother', 'type': 'paper', 'name': 'Other'},
+                     {'id': 'f', 'type': 'finding', 'name': 'Result'}],
+           'edges': [{'id': 'e1', 'type': 'reports', 'source': 'Lcited', 'target': 'f', 'source_paper': rid, 'evidence': [quote]},
+                     {'id': 'e2', 'type': 'reports', 'source': 'Lother', 'target': 'f', 'source_paper': rid, 'evidence': [quote]}]}
+    result = parse_fragment(raw, [review])
+    assert [n.id for n in result.nodes] == ['Lcited', 'f'] and [e.id for e in result.edges] == ['e1']
+    assert len(result.dropped) == 2
+
+
+def test_merging_steps_keeps_one_paper_node_with_alternate_titles():
+    from src.research_discovery.graph_pipeline import _merge_graphs
+    a = ResearchGraph((GraphNode('L1', 'paper', 'DIME', (), ''),), (), ())
+    b = ResearchGraph((GraphNode('L1', 'paper', 'DIME: diffusion max-ent RL', (), ''),), (), ())
+    merged = _merge_graphs([a, b])
+    assert [(n.id, n.name, n.aliases) for n in merged.nodes] == [('L1', 'DIME', ('DIME: diffusion max-ent RL',))]
+
+
+def test_shortlist_caps_each_pattern_and_prefers_multi_paper_support():
+    from src.research_discovery.graph import GapCandidate
+    from src.research_discovery.graph_pipeline import _shortlist
+    edges = tuple(GraphEdge(f'e{i}', 'addresses', 'm', 'p', f'L{i}', ()) for i in range(3))
+    graph = ResearchGraph((), edges, ())
+    weak = [GapCandidate('evaluation_gap', f'weak {i}', ('n',), ('e0',)) for i in range(5)]
+    strong = GapCandidate('evaluation_gap', 'strong', ('n',), ('e0', 'e1', 'e2'))
+    other = GapCandidate('contradiction', 'other', ('n',), ('e1',))
+    kept = _shortlist([*weak, strong, other], graph, 2, 10)
+    assert kept[0].statement == 'strong' and len([c for c in kept if c.pattern == 'evaluation_gap']) == 2
+    assert other in kept
+
+
+def test_semantic_canonicalization_connects_nodes_from_different_steps(tmp_path):
+    import json
+    from src.research_discovery.artifacts import Steps
+    from src.research_discovery.graph_pipeline import _confirm_canonicalization
+    from src.ideation.role_runner import RoleAgent
+    def role(name, prompt, **kw):
+        data = json.loads(prompt.split('UNTRUSTED DATA\n', 1)[1])
+        ids = [i for c in data['clusters'] for i in c['node_ids']]
+        return {'clusters': [{'node_ids': ids, 'canonical': ids[0], 'name': 'Biased critic'}]}
+    nodes = (GraphNode('s1__a', 'assumption', 'Biased critic'), GraphNode('s2__a', 'assumption', 'Q-value overestimation'),
+             GraphNode('m1', 'method', 'One'), GraphNode('m2', 'method', 'Two'))
+    edges = (GraphEdge('e1', 'assumes', 'm1', 's1__a', 'L1', ()), GraphEdge('e2', 'assumes', 'm2', 's2__a', 'L2', ()))
+    graph = _confirm_canonicalization(ResearchGraph(nodes, edges, ()), Steps(tmp_path, RoleAgent('codex'), role), RoleAgent('codex'))
+    assert {e.target for e in graph.edges} == {'s1__a'}
+    assert next(n for n in graph.nodes if n.id == 's1__a').aliases == ('Q-value overestimation',)
+
+
+def test_targeted_fragment_links_new_nodes_to_known_graph_nodes():
+    source = doc('Source', 'Exact supporting statement.')
+    paper, passage = source.record.id, source.passages[0]
+    known = GraphNode('step__p', 'problem', 'Problem')
+    span = {'source': paper, 'passage': passage.id, 'start': 0, 'end': 5, 'quote': passage.text[:5]}
+    raw = {'nodes': [{'id': 'step__p', 'type': 'problem', 'name': 'Problem'}, {'id': 'n1', 'type': 'method', 'name': 'M'}],
+           'edges': [{'id': 'e1', 'type': 'addresses', 'source': 'n1', 'target': 'step__p', 'source_paper': paper, 'evidence': [span]}]}
+    fragment = namespace_fragment(parse_fragment(raw, [source], [known]), 'targeted')
+    assert [n.id for n in fragment.nodes] == ['targeted__n1']
+    assert [(e.source, e.target) for e in fragment.edges] == [('targeted__n1', 'step__p')]
+
+
+def test_synthesized_gaps_need_a_problem_and_cite_supporting_edges():
+    import pytest
+    from src.research_discovery.graph_pipeline import _synthesis_view, _validate_synthesis
+    from src.research_discovery.models import ValidationError
+    nodes = (GraphNode('p', 'problem', 'Credit'), GraphNode('m1', 'method', 'One'), GraphNode('m2', 'method', 'Two'),
+             GraphNode('a', 'assumption', 'Unbiased critic'))
+    edges = (GraphEdge('e1', 'addresses', 'm1', 'p', 'L1', ()), GraphEdge('e2', 'addresses', 'm2', 'p', 'L2', ()),
+             GraphEdge('e3', 'assumes', 'm1', 'a', 'L1', ()), GraphEdge('e4', 'assumes', 'm2', 'a', 'L2', ()))
+    graph = ResearchGraph(nodes, edges, ())
+    view = _synthesis_view(graph)
+    assert view[0]['problem']['id'] == 'p' and {a['id'] for a in view[0]['assumptions']} == {'a'}
+    row = {'kind': 'shared_assumption', 'statement': 'All assume an unbiased critic.', 'rationale': 'Two papers.'}
+    [gap] = _validate_synthesis({'gaps': [{**row, 'node_ids': ['p', 'm1', 'm2', 'a', 'ghost']},
+                                          {**row, 'node_ids': ['m1', 'a']}]}, graph)
+    assert gap.pattern == 'synthesis:shared_assumption' and set(gap.edge_ids) == {'e1', 'e2', 'e3', 'e4'}
+    with pytest.raises(ValidationError):
+        _validate_synthesis({'gaps': [{**row, 'kind': 'vibes', 'node_ids': ['p']}]}, graph)

@@ -132,24 +132,31 @@ def select_sections(document, limit=8, *, section_names=None):
     return tuple(result[:limit])
 
 
-def parse_fragment(raw, documents):
+def parse_fragment(raw, documents, known_nodes=()):
     """Validate nodes and edge endpoints; silently discard bad-quote edges with an audit note."""
     object_fields(raw, ('nodes', 'edges'))
-    paper_ids = {d.record.id for d in documents if d.origin == 'paper'}
-    nodes, seen = [], set()
+    # The manuscript is a valid source, and the papers its passages cite are valid paper nodes.
+    paper_ids = {d.record.id for d in documents}
+    cited_ids = paper_ids | {c for d in documents for p in d.passages for c in p.citations}
+    nodes, seen, dropped = [], set(), []
     for item in array(raw['nodes']):
         object_fields(item, ('id', 'type', 'name'), ('paper_id',))
         if item['type'] not in NODE_TYPES:
             raise ValidationError('unknown graph node type')
         node_id, name = text(item['id']), text(item['name'])
+        if any(node.id == node_id for node in known_nodes):
+            continue
         if node_id in seen:
             raise ValidationError('duplicate graph node id')
+        if item['type'] == 'paper' and node_id not in cited_ids:
+            dropped.append('dropped paper node outside the supplied passages ' + node_id)
+            continue
         seen.add(node_id)
-        if item['type'] == 'paper' and node_id not in paper_ids:
-            raise ValidationError('paper graph node must identify a corpus paper')
         nodes.append(GraphNode(node_id, item['type'], name, (), item.get('paper_id', '')))
-    edges, dropped = [], []
-    by_id = {node.id: node for node in nodes}
+    edges = []
+    # Targeted reads may link new nodes to nodes already in the graph.
+    by_id = {**{node.id: node for node in known_nodes}, **{node.id: node for node in nodes}}
+    seen = seen | {node.id for node in known_nodes}
     endpoints = {'addresses': ('method', 'problem'), 'assumes': ('method', 'assumption'),
         'fails_under': ('method', 'failure_condition'), 'evaluated_on': ('method', 'setting'),
         'extends': ('method', 'method'), 'compares': ('method', 'method'), 'reports': ('paper', 'finding'),
@@ -159,6 +166,9 @@ def parse_fragment(raw, documents):
         if item['type'] not in EDGE_TYPES:
             raise ValidationError('unknown graph edge type')
         if item['source'] not in seen or item['target'] not in seen:
+            if {item['source'], item['target']} <= seen | {n['id'] for n in raw['nodes'] if isinstance(n, dict)}:
+                dropped.append('dropped edge to a dropped node ' + text(item['id']))
+                continue
             raise ValidationError('graph edge references unknown node')
         if item['type'] == 'handles':
             valid = by_id[item['source']].type == 'method' and by_id[item['target']].type in ('failure_condition', 'assumption')
@@ -188,7 +198,8 @@ def namespace_fragment(graph, namespace):
                for node in graph.nodes}
     nodes = tuple(replace(node, id=mapping[node.id]) for node in graph.nodes)
     edges = tuple(replace(edge, id=f'{namespace}__{edge.id}',
-                          source=mapping[edge.source], target=mapping[edge.target]) for edge in graph.edges)
+                          source=mapping.get(edge.source, edge.source), target=mapping.get(edge.target, edge.target))
+                  for edge in graph.edges)
     return ResearchGraph(nodes, edges, graph.dropped)
 
 

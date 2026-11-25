@@ -4,8 +4,8 @@ import json
 import logging
 from pathlib import Path
 from .artifacts import digest, read_json, write_json
-from .models import (Document, Evidence, ValidationError, object_fields, text, array,
-                     evidence, document_from_dict)
+from .models import (supported_evidence, Document, Evidence, ValidationError, object_fields, text, array,
+                     document_from_dict)
 from .ingest import passages
 from .context import bounded_documents
 
@@ -37,8 +37,8 @@ def parse_verification(raw, *, gap_id, documents, searches):
     verdict=raw['verdict'];rationale=text(raw['rationale'])
     if verdict not in ('open','partially_addressed','already_resolved','uncertain'):
         raise ValidationError('unknown verification verdict')
-    positive=tuple(evidence(e,documents) for e in array(raw['positive_evidence']))
-    counter=tuple(evidence(e,documents) for e in array(raw['counter_evidence']))
+    positive=supported_evidence(raw['positive_evidence'],documents)
+    counter=supported_evidence(raw['counter_evidence'],documents)
     resolving=tuple(text(s) for s in array(raw['resolving_sources']))
     papers={d.record.id for d in documents if d.origin=='paper'}
     if any(s not in papers or s not in {e.source for e in counter} for s in resolving):
