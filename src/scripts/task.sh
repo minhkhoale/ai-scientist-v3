@@ -182,7 +182,7 @@ while [[ $# -gt 0 ]]; do
       CONTAINER_ENV_FILE="$2"
       shift 2
       ;;
-    claude|codex|cursor|opencode|gemini|pi)
+    claude|codex|cursor|opencode|gemini|antigravity|pi)
       AGENT="$1"
       shift
       ;;
@@ -482,6 +482,7 @@ case "$AGENT" in
   cursor) AGENT_CONFIG_DIR=".cursor" ;;
   opencode) AGENT_CONFIG_DIR=".opencode" ;;
   gemini) AGENT_CONFIG_DIR=".gemini" ;;
+  antigravity) AGENT_CONFIG_DIR=".gemini/antigravity-cli" ;;
   pi) AGENT_CONFIG_DIR=".pi/agent" ;;
   *)
     echo "Unsupported agent: $AGENT" >&2
@@ -489,7 +490,11 @@ case "$AGENT" in
     ;;
 esac
 
-FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+if [ "$AGENT" = "antigravity" ]; then
+  FORMATTED_SKILLS_REL_DIR=".agents/skills"
+else
+  FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+fi
 (
   cd "$OUTPUT_DIR"
   "$PYTHON_BIN" - "$REPO_ROOT" "$FORMATTED_SKILLS_REL_DIR" <<'PY'

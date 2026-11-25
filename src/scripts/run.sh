@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: bash src/scripts/run.sh [--agent claude|codex|cursor|opencode|gemini|pi] [--agent-model <name>] [--reasoning-effort low|medium|high|xhigh] [--task-dir <path>] [--results-dir <path>] [--global-memory-dir <path>] [--instruct <path>] [--seed-program <path>] [--rubrics-file <path>] [--idea-file <path>] [--attempt-id <id>] [--idea-dir-name <name>] [--max-program-evals-per-attempt <n>] [--harness-evaluated-attempt] [--gpu-evaluation] [--agent-timeout-seconds <n>] [--harness-evaluation-timeout-seconds <n>] [--containerize] [--container-image <name>] [--container-network <mode>] [--container-auth-root <path>] [--container-env-file <path>]
+# Usage: bash src/scripts/run.sh [--agent claude|codex|cursor|opencode|gemini|antigravity|pi] [--agent-model <name>] [--reasoning-effort low|medium|high|xhigh] [--task-dir <path>] [--results-dir <path>] [--global-memory-dir <path>] [--instruct <path>] [--seed-program <path>] [--rubrics-file <path>] [--idea-file <path>] [--attempt-id <id>] [--idea-dir-name <name>] [--max-program-evals-per-attempt <n>] [--harness-evaluated-attempt] [--gpu-evaluation] [--agent-timeout-seconds <n>] [--harness-evaluation-timeout-seconds <n>] [--containerize] [--container-image <name>] [--container-network <mode>] [--container-auth-root <path>] [--container-env-file <path>]
 
 set -euo pipefail
 
@@ -190,7 +190,7 @@ while [[ $# -gt 0 ]]; do
       CONTAINER_ENV_FILE="$2"
       shift 2
       ;;
-    claude|codex|cursor|opencode|gemini|pi)
+    claude|codex|cursor|opencode|gemini|antigravity|pi)
       AGENT="$1"
       shift
       ;;
@@ -829,6 +829,7 @@ case "$AGENT" in
   cursor) AGENT_CONFIG_DIR=".cursor" ;;
   opencode) AGENT_CONFIG_DIR=".opencode" ;;
   gemini) AGENT_CONFIG_DIR=".gemini" ;;
+  antigravity) AGENT_CONFIG_DIR=".gemini/antigravity-cli" ;;
   pi) AGENT_CONFIG_DIR=".pi/agent" ;;
   *)
     echo "Unsupported agent: $AGENT" >&2
@@ -836,7 +837,11 @@ case "$AGENT" in
     ;;
 esac
 
-FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+if [ "$AGENT" = "antigravity" ]; then
+  FORMATTED_SKILLS_REL_DIR=".agents/skills"
+else
+  FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+fi
 RUN_SKILL_STEP="run"
 if [ "$HARNESS_EVALUATED_ATTEMPT" -eq 1 ]; then
   RUN_SKILL_STEP="run_harness_eval"

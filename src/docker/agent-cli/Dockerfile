@@ -69,7 +69,7 @@ RUN git clone --filter=blob:none https://github.com/RobertTLange/headless-cli.gi
     && npm prune --ignore-scripts --omit=dev --prefix /opt/headless \
     && ln -s /opt/headless/dist/cli.js /usr/local/bin/headless \
     && headless --version \
-    && for agent in codex claude opencode pi; do \
+    && for agent in codex claude opencode pi antigravity; do \
       headless "$agent" --debug --usage --allow yolo --print-command \
         --prompt runtime-contract-smoke >/dev/null; \
     done
@@ -136,6 +136,8 @@ RUN test "$(autoillustrate --version)" = "$AUTOILLUSTRATE_VERSION" \
     && test -r "$AUTOILLUSTRATE_HOME/scripts/compose.py" \
     && test -r "$AUTOILLUSTRATE_HOME/assets/panel_geometry.py"
 RUN curl -fsSL https://cursor.com/install | bash
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
+    && command -v agy
 WORKDIR /workspace
 
 CMD ["bash"]

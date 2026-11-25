@@ -133,9 +133,11 @@ validate_agent_reasoning_effort() {
   local agent="$1"
   local effort="${2:-}"
   validate_reasoning_effort "$effort" || return 1
-  if [ "$agent" = "gemini" ] && [ -n "$effort" ]; then
-    echo "--reasoning-effort is not supported for gemini" >&2
-    return 1
+  if [ "$agent" = "gemini" ] || [ "$agent" = "antigravity" ]; then
+    if [ -n "$effort" ]; then
+      echo "--reasoning-effort is not supported for $agent" >&2
+      return 1
+    fi
   fi
 }
 
@@ -184,6 +186,9 @@ agent_provider_allowed_env_keys() {
       ;;
     gemini)
       allowed_keys="GEMINI_API_KEY GOOGLE_API_KEY"
+      ;;
+    antigravity)
+      allowed_keys="ANTIGRAVITY_CLI_BIN AGY_CLI_BIN AGY_HOME ANTIGRAVITY_HOME"
       ;;
     pi|opencode)
       allowed_keys="PI_CODING_AGENT_PROVIDER PI_CODING_AGENT_MODEL PI_CODING_AGENT_MODELS"
@@ -254,7 +259,7 @@ agent_runtime_allowed_env_keys() {
 
 agent_streams_prompt_file() {
   case "$1" in
-    claude|codex|gemini) return 0 ;;
+    claude|codex|gemini|antigravity) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -801,6 +806,7 @@ agent_config_rel_dir() {
     cursor) echo ".cursor" ;;
     opencode) echo ".config/opencode" ;;
     gemini) echo ".gemini" ;;
+    antigravity) echo ".gemini/antigravity-cli" ;;
     pi) echo ".pi/agent" ;;
     *)
       echo "Unsupported agent: $agent" >&2
@@ -844,6 +850,15 @@ EOF
 .gemini/state.json
 .gemini/trustedFolders.json
 .gemini/installation_id
+EOF
+      ;;
+    antigravity)
+      cat <<'EOF'
+.gemini/antigravity-cli/antigravity-oauth-token
+.gemini/antigravity-cli/settings.json
+.gemini/antigravity-cli/installation_id
+.gemini/antigravity-cli/jetski_state.pbtxt
+.gemini/config
 EOF
       ;;
     pi)
@@ -966,7 +981,7 @@ build_agent_inner_command() {
   fi
   validate_agent_reasoning_effort "$agent" "$reasoning_effort" || return 2
   case "$agent" in
-    claude|codex|cursor|opencode|gemini|pi) ;;
+    claude|codex|cursor|opencode|gemini|antigravity|pi) ;;
     *)
       echo "Unsupported agent: $agent" >&2
       return 1
@@ -1200,6 +1215,12 @@ ensure_agent_session_container() {
     -e "WRAPPER_PYTHON=${AGENT_CONTAINER_WRAPPER_PYTHON:-python}"
     -e "TASK_PYTHON=$(container_task_python "$task_source_container")"
   )
+  if [ "$agent" = "antigravity" ]; then
+    docker_cmd+=(
+      -e AGY_HOME=/home/agent-home/.gemini/antigravity-cli
+      -e ANTIGRAVITY_HOME=/home/agent-home/.gemini/antigravity-cli
+    )
+  fi
   append_extra_mounts
   docker_cmd+=(
     -v "$container_mount_root:/workspace"
@@ -1576,6 +1597,12 @@ _dispatch_inner_command() {
       -e "WRAPPER_PYTHON=${AGENT_CONTAINER_WRAPPER_PYTHON:-python}"
       -e "TASK_PYTHON=$(container_task_python "$task_source_container")"
     )
+    if [ "$agent" = "antigravity" ]; then
+      docker_cmd+=(
+        -e AGY_HOME=/home/agent-home/.gemini/antigravity-cli
+        -e ANTIGRAVITY_HOME=/home/agent-home/.gemini/antigravity-cli
+      )
+    fi
     append_extra_mounts
     if [ "$workdir_readonly" = "1" ]; then
       docker_cmd+=(-v "$container_mount_root:$workspace_root:ro")
