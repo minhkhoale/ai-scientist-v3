@@ -1,12 +1,15 @@
 """Independent solution searches and conservative evidence-checked gap verdicts."""
 from dataclasses import asdict, dataclass
 import json
+import logging
 from pathlib import Path
 from .artifacts import digest, read_json, write_json
 from .models import (Document, Evidence, ValidationError, object_fields, text, array,
                      evidence, document_from_dict)
 from .ingest import passages
 from .context import bounded_documents
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,7 @@ def counter_searches(gap,documents,*,provider,out,settings):
                 write_json(completed,{'query':query,'ids':ids,'documents':[asdict(d) for d in additions],'fulltext_errors':errors})
                 ids=tuple(ids)
             except (OSError,ValueError,KeyError) as exc:
+                LOGGER.warning('Literature search failed: %s: %s', query, exc)
                 audits.append(SearchAudit(query,'failed',(),str(exc)))
                 write_json(directory/'failed_attempt.json',{'query':query,'error':str(exc)})
                 continue

@@ -1,19 +1,43 @@
 """Bounded scholarly retrieval with offline seams and durable source snapshots."""
 from dataclasses import asdict, dataclass, replace
 import json
+import logging
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import os
 from pathlib import Path
 import re
 import time
 import urllib.parse
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
-from src.ideation.literature.sources import (LiteratureRecord, http_get, fetch_arxiv,
+from src.ideation.literature.sources import (LiteratureRecord, fetch_arxiv,
     parse_source_spec, fetch_conference, HttpStatusError)
 from src.ideation.literature.corpus import build_corpus
 from .artifacts import write_json, read_json, fingerprint_inputs, digest
 from .models import Document, ValidationError, document_from_dict
 from .ingest import make_record, load_inputs, passages, pdf_text
 from .config import DiscoverySettings
+
+LOGGER = logging.getLogger(__name__)
+
+
+class ProviderHttpStatusError(HttpStatusError):
+    def __init__(self, status, retry_after=None):
+        self.retry_after = retry_after
+        super().__init__(status)
+
+
+def scholar_http_get(url):
+    request = urllib.request.Request(url, headers={'User-Agent': 'agentic-scientist-literature/0.1'})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status != 200:
+                raise ProviderHttpStatusError(response.status, response.headers.get('Retry-After'))
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        raise ProviderHttpStatusError(exc.code, exc.headers.get('Retry-After')) from exc
 
 
 def openalex_api_key(env_file=Path(__file__).parents[2]/'.env'):
@@ -35,12 +59,15 @@ class Paper:
 
 
 class ScholarProvider:
-    def __init__(self, *, http=http_get, sleep=time.sleep, pdf_text=pdf_text, api_key=None):
+    def __init__(self, *, http=scholar_http_get, sleep=time.sleep, pdf_text=pdf_text, api_key=None):
         self.http,self.sleep,self.pdf_text = http,sleep,pdf_text
         self.api_key = openalex_api_key() if api_key is None else api_key
         self.last=0.0
+        self.stopped_reason = ''
 
     def get(self,url):
+        if self.stopped_reason:
+            raise OSError(self.stopped_reason)
         # Host research utilities, never role agents, perform literature network access.
         if url.startswith('http://export.arxiv.org'):url=url.replace('http://','https://',1)
         if url.startswith('https://api.openalex.org/') and self.api_key:
@@ -52,7 +79,21 @@ class ScholarProvider:
             try:return self.http(url)
             except HttpStatusError as exc:
                 if exc.status not in (429,500,502,503,504) or attempt==2:raise
-                self.sleep(2**(attempt+1))
+                retry_after = getattr(exc, 'retry_after', None)
+                try:
+                    delay = float(retry_after) if retry_after is not None else 2**(attempt+1)
+                except (TypeError, ValueError):
+                    try:
+                        retry_time = parsedate_to_datetime(retry_after)
+                        if retry_time.tzinfo is None: retry_time = retry_time.replace(tzinfo=timezone.utc)
+                        delay = (retry_time - datetime.now(timezone.utc)).total_seconds()
+                    except (TypeError, ValueError, OverflowError):
+                        delay = 2**(attempt+1)
+                if delay > 60:
+                    self.stopped_reason = f'provider paused: Retry-After {delay:g}s exceeds 60s'
+                    LOGGER.warning(self.stopped_reason)
+                    raise OSError(self.stopped_reason) from exc
+                self.sleep(max(0, delay))
         raise ValidationError('unreachable retrieval state')
 
     def work(self,raw):
@@ -120,7 +161,9 @@ class ScholarProvider:
 
 def retrieve(*,topic,papers,manuscript,out,provider=None,settings=DiscoverySettings(),sources=()):
     out=Path(out);provider=provider or ScholarProvider()
-    key=digest(dict(topic=topic,inputs=fingerprint_inputs(papers,manuscript),settings=asdict(settings),sources=list(sources)))
+    retrieval_fields = ('search_limit', 'expansion_limit', 'max_papers', 'passage_chars', 'offline')
+    retrieval_settings = {name: getattr(settings, name) for name in retrieval_fields}
+    key=digest(dict(topic=topic,inputs=fingerprint_inputs(papers,manuscript),settings=retrieval_settings,sources=list(sources)))
     completed=out/'retrieval/completed.json'
     if completed.exists():
         saved=read_json(completed)
@@ -153,11 +196,14 @@ def retrieve(*,topic,papers,manuscript,out,provider=None,settings=DiscoverySetti
             try:lookup(value);derived.append(value)
             except (OSError,ValueError,KeyError,ET.ParseError) as exc:errors.append({'step':'manuscript_reference','error':str(exc)})
     docs=load_inputs([*papers,*derived],manuscript,lookup=lookup,max_chars=settings.passage_chars)
+    seed_count = len([d for d in docs if d.origin == 'paper'])
+    if settings.max_papers <= seed_count:
+        LOGGER.warning('max_papers (%s) is not above seed count (%s); no online papers can be added', settings.max_papers, seed_count)
     seen={d.record.id for d in docs};additional=[]
     def run_query(name,fn):
         try:return [paper_from_dict(p) for p in cached(name,lambda:[asdict(p) for p in fn()])]
         except (OSError,ValueError,KeyError,ET.ParseError) as exc:
-            errors.append({'step':name,'error':str(exc)});return []
+            errors.append({'step':name,'error':str(exc)});LOGGER.warning('Literature search failed: %s: %s', name, exc);return []
     if not settings.offline:
         additional+=run_query('topic_search',lambda:provider.search(topic,settings.search_limit))
         # Reuse existing source grammar/provider implementations for explicit sources.

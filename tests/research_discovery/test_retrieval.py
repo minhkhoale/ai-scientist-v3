@@ -130,3 +130,32 @@ def test_openalex_requests_carry_api_key_only_for_openalex():
     provider=ScholarProvider(http=lambda u:(urls.append(u),b'{}')[1],sleep=lambda s:None,api_key='k1')
     provider.get('https://api.openalex.org/works?search=x');provider.get('https://export.arxiv.org/api/query?id_list=1')
     assert urls[0].endswith('&api_key=k1') and 'api_key' not in urls[1]
+
+
+def test_cached_retrieval_is_reused_when_graph_settings_change(tmp_path):
+    from dataclasses import replace
+    from src.research_discovery.config import DiscoverySettings
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA claim.')
+    class Provider:
+        def __init__(self):self.searches=0
+        def search(self,*args):self.searches+=1;return []
+    provider=Provider();out=tmp_path/'run'
+    first=retrieve(topic='Topic',papers=[],manuscript=review,out=out,provider=provider,
+                   settings=DiscoverySettings())
+    second=retrieve(topic='Topic',papers=[],manuscript=review,out=out,provider=provider,
+                    settings=replace(DiscoverySettings(),deep_papers=2,parallel=1))
+    assert second==first and provider.searches==1
+
+
+def test_retry_after_over_sixty_seconds_stops_provider():
+    from src.research_discovery.providers import ProviderHttpStatusError
+    calls=[]
+    def http(url):
+        calls.append(url)
+        raise ProviderHttpStatusError(429, '61')
+    provider=ScholarProvider(http=http,sleep=lambda _:None,api_key='')
+    with pytest.raises(OSError,match='exceeds 60s'):
+        provider.get('https://api.openalex.org/works')
+    with pytest.raises(OSError,match='provider paused'):
+        provider.get('https://api.openalex.org/works')
+    assert len(calls)==1
