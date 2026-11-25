@@ -1,0 +1,1 @@
+Review candidate groups of near-duplicate graph nodes. Confirm a merge only when the names refer to the same scientific concept; otherwise split into smaller groups. Every input node id must occur exactly once. Return exactly {"clusters":[{"node_ids":["n1"],"canonical":"n1","name":"canonical name"}]}. Keep singleton nodes. No other keys.
