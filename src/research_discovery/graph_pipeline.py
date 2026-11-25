@@ -12,6 +12,7 @@ from .artifacts import Steps, read_json, write_json
 from .assessment import parse_assessment, rank_gaps
 from .context import bounded_documents
 from .discovery import Hypothesis
+from .distance import candidate_methods, gap_distance, graph_priors, parse_coverage
 from .graph import (GapCandidate, GraphNode, ResearchGraph, canonicalize, detect_gaps,
                     namespace_fragment, parse_fragment, rank_relevance, select_sections)
 from .models import Passage, Evidence, ValidationError, identifier, object_fields, text
@@ -293,7 +294,57 @@ def integrate_targeted_read(graph, fragment, candidate, *, topic_settings=()):
     return updated, still_present
 
 
-def _report(out, topic, graph, relevance, gaps, verifications, assessments, ranked, documents, audit):
+DISTANCE_NOTE = ('SCD = 1 - max over prior methods of weighted facet coverage (problem 0.2, setting 0.2, '
+    'failure 0.3, resolution 0.3); the interval treats facets the corpus does not show as unknown. '
+    'SFD counts the changes the closest method needs and the cheapest typed graph path to the gap. '
+    'SND is lexical, for screening only. None of these measure research value.')
+
+
+def _fmt(value):
+    return '-' if value is None else f'{value:g}'
+
+
+def _measure_distance(gap, graph, verification, documents, steps, judge, topic, limit):
+    methods = candidate_methods(gap, graph, verification)
+    priors = graph_priors(gap, graph, methods)
+    node_map = {n.id: n for n in graph.nodes}
+    method_papers = {e.source_paper for e in graph.edges if e.source in {m.id for m in methods}}
+    required = (*[s for cells in priors.values() for c in cells.values() for s in c.evidence],
+                *verification.counter_evidence)
+    relevant = bounded_documents([d for d in documents if d.record.id in method_papers | set(verification.resolving_sources)
+                                  | {e.source for e in verification.counter_evidence}],
+                                 topic + ' ' + gap.statement, required=required, limit=limit)
+    def neighborhood(method):
+        return {kind: sorted({node_map[e.target].name for e in graph.edges if e.source == method.id and e.type == kind
+                              and e.target in node_map}) for kind in ('addresses', 'assumes', 'fails_under', 'handles', 'evaluated_on')}
+    data = {'topic': topic, 'gap': {'statement': gap.statement, 'sub_problem': gap.sub_problem,
+            'closing_evidence': gap.closing_evidence, 'verdict': verification.verdict, 'verification': verification.rationale},
+            'methods': [{'method_id': m.id, 'name': m.name, 'graph': neighborhood(m),
+                         'graph_priors': {f: c.level for f, c in priors.get(m.id, {}).items()}} for m in methods],
+            'documents': [asdict(d) for d in relevant]}
+    facets, coverage = steps.run('coverage', 'coverage_' + gap.id, _prompt('coverage', data),
+        lambda raw: parse_coverage(raw, methods=methods, priors=priors, documents=relevant), agent=judge)
+    return gap_distance(gap, graph, verification, documents, coverage, facets)
+
+
+def _distance_lines(d):
+    lines = ['', f'Gap distance: SCD [{d.scd_low:.2f}, {d.scd_high:.2f}]; SFD {len(d.sfd_changes)} changes '
+             f'(cost {_fmt(d.sfd_transform)}), graph path {_fmt(d.sfd_graph)}; SND {d.snd:.2f} (nearest {d.snd_neighbor}, {d.snd_method}).',
+             'Facets: ' + '; '.join(f'{k}: {v}' for k, v in d.facets.items()),
+             '| Method | Problem | Setting | Failure | Resolution | Coverage |', '| --- | --- | --- | --- | --- | --- |']
+    for m in d.methods:
+        lines.append(f'| {m.name} | ' + ' | '.join(m.cells[f].level for f in ('problem', 'setting', 'failure', 'resolution'))
+                     + f' | [{m.coverage_low:.2f}, {m.coverage_high:.2f}] |')
+    if d.resolving_method:
+        lines.append(f'Every facet is covered by {d.resolving_method}; check whether the gap is already resolved.')
+    if d.sfd_changes:
+        lines.append('Changes the closest method needs: ' + '; '.join(f'{c.kind}: {c.description}' for c in d.sfd_changes))
+    lines.append('Confidence: ' + ', '.join(f'{k} {v}' for k, v in d.confidence.items()))
+    return lines
+
+
+def _report(out, topic, graph, relevance, gaps, verifications, assessments, ranked, documents, audit, distances=None):
+    distances = distances or {}
     node_map = {n.id: n for n in graph.nodes}
     write_json(out / 'graph.json', {'nodes': [asdict(n) for n in graph.nodes],
         'edges': [asdict(e) for e in graph.edges], 'dropped_edges': list(graph.dropped)})
@@ -306,7 +357,8 @@ def _report(out, topic, graph, relevance, gaps, verifications, assessments, rank
         row = {**asdict(gap), 'verification': asdict(verification),
                'assessment': asdict(assessment) if assessment else None,
                'rank': ranks[gap.id].rank if gap.id in ranks else None,
-               'score': ranks[gap.id].score if gap.id in ranks else None}
+               'score': ranks[gap.id].score if gap.id in ranks else None,
+               'distance': asdict(distances[gap.id]) if gap.id in distances else None}
         rows.append(row)
     write_json(out / 'research_gaps.json', {'gaps': rows})
     handoff = []
@@ -334,6 +386,16 @@ def _report(out, topic, graph, relevance, gaps, verifications, assessments, rank
         '## Ranked gaps', '', FORMULA, '', '| Rank | Pattern | Gap | Verdict | Score |', '| --- | --- | --- | --- | --- |']
     for row in ranked:
         lines.append(f'| {row.rank} | {row.gap.pattern} | {row.gap.statement} | {row.verification.verdict} | {row.score:.2f} |')
+    if distances:
+        lines += ['', '## Gap-distance profile', '', DISTANCE_NOTE, '',
+                  '| Gap | SCD [low, high] | SFD changes (cost) | SFD graph | SND | Known cells | Searches ok |',
+                  '| --- | --- | --- | --- | --- | --- | --- |']
+        for gap in gaps:
+            d = distances.get(gap.id)
+            if d:
+                lines.append(f'| {gap.statement[:90]} | [{d.scd_low:.2f}, {d.scd_high:.2f}] | '
+                             f'{len(d.sfd_changes)} ({_fmt(d.sfd_transform)}) | {_fmt(d.sfd_graph)} | {d.snd:.2f} | '
+                             f'{d.confidence["known_cell_fraction"]:.0%} | {d.confidence["search_coverage"]:.0%} |')
     for gap in gaps:
         v = verifications[gap.id]
         assessment = assessments.get(gap.id)
@@ -355,6 +417,8 @@ def _report(out, topic, graph, relevance, gaps, verifications, assessments, rank
         lines.extend(f'- {search.query}: {search.status}; results: {", ".join(search.result_ids) or "none"}'
                      + (f'; {search.error}' if search.error else '') for search in v.searches)
         lines.extend('- Uncertainty: ' + note for note in v.uncertainty_notes)
+        if gap.id in distances:
+            lines += _distance_lines(distances[gap.id])
         if assessment:
             lines.append('Research value: ' + '; '.join(
                 f'{name} {getattr(assessment, name).score:g}/5 ({getattr(assessment, name).rationale})'
@@ -524,6 +588,12 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
             assessments[gap.id] = steps.run('assess', 'assess_' + gap.id, _prompt('assess', data),
                 lambda raw, gap=gap, relevant=relevant: parse_assessment(raw, gap_id=gap.id, documents=relevant), agent=judge)
     ranked = rank_gaps(gaps, verifications, assessments)
+    distances = {}
+    for gap in gaps:
+        if verifications[gap.id].verdict == 'already_resolved':
+            continue
+        distances[gap.id] = _measure_distance(gap, graph, verifications[gap.id], documents, steps, judge,
+                                              topic, settings.context_passages)
     records = [d.record for d in documents if d.origin == 'paper']
     build_corpus(out / 'corpus', ['folder:discovery-final-snapshot'], require_nonempty=True,
                  fetchers={'folder': lambda _: records})
@@ -533,7 +603,7 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     audit['verification_searches'] = {gap_id: [asdict(search) for search in verification.searches]
                                       for gap_id, verification in verifications.items()}
     report, handoff_count = _report(out, topic, graph, relevance, gaps, verifications, assessments,
-                                    ranked, documents, audit)
+                                    ranked, documents, audit, distances)
     write_json(out / 'status.json', {'state': 'completed' if ranked else 'no_supported_gaps',
         'candidate_gaps': len(gaps), 'ranked_gaps': len(ranked), 'handoff_count': handoff_count,
         'estimated_calls': estimate, 'report': str(report)})
