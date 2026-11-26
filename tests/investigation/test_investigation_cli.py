@@ -268,21 +268,30 @@ LOAD_CONFIG_REJECTED_CASES: list[tuple[str, list[str]]] = [
 GEMINI_REASONING_EFFORT_CASES: list[tuple[str, list[str]]] = [
     ("gemini_agent", ["agent.name=gemini", "agent.reasoning_effort=high"]),
     ("gemini_pool_entry", ["agent.pool=[codex,gemini]", "agent.reasoning_effort=high"]),
+    ("antigravity_agent", ["agent.name=antigravity", "agent.reasoning_effort=high"]),
+    ("antigravity_pool_entry", ["agent.pool=[codex,antigravity]", "agent.reasoning_effort=high"]),
 ]
 
 
-def test_load_config_rejects_invalid_overrides_with_exit_2_and_gemini_reasoning_effort() -> None:
+def test_load_config_rejects_invalid_overrides_and_unsupported_agent_reasoning_effort() -> None:
     # invalid overrides exit with code 2
     for name, overrides in LOAD_CONFIG_REJECTED_CASES:
         with pytest.raises(SystemExit) as ctx:
             investigation_cli.load_config(overrides)
         assert ctx.value.code == 2, name
 
-    # reasoning effort is rejected for gemini (as agent or pool entry)
+    # reasoning effort is rejected for Gemini and Antigravity (as agent or pool entry)
     for name, overrides in GEMINI_REASONING_EFFORT_CASES:
         with pytest.raises(SystemExit) as ctx:
             investigation_cli.load_config(overrides)
-        assert "not supported for gemini" in str(getattr(ctx.value, "message", ctx.value)), name
+        assert "not supported for" in str(getattr(ctx.value, "message", ctx.value)), name
+
+
+def test_load_config_accepts_antigravity_as_agent_and_pool_member() -> None:
+    selected = investigation_cli.load_config(["agent.name=antigravity"])
+    assert selected.agent.name == "antigravity"
+    pooled = investigation_cli.load_config(["agent.pool=[codex,antigravity]"])
+    assert pooled.agent.pool == ["codex", "antigravity"]
 
 
 NORMALIZE_RESULTS_DIR_CASES: list[tuple[str, str, str]] = [
@@ -547,14 +556,14 @@ INVALID_AGENT_COMMAND_CASES: list[tuple[str, str, dict[str, str], str]] = [
 
 def test_build_agent_command_routes_through_headless_forwards_model_and_rejects_invalid_combinations() -> None:
     # every agent is routed through headless
-    for agent in ("claude", "codex", "cursor", "gemini", "opencode", "pi"):
+    for agent in ("claude", "codex", "cursor", "gemini", "antigravity", "opencode", "pi"):
         command = investigation_cli._build_agent_command(agent, "/private/prompt.md")
         expected_prefix = [*HEADLESS_PREFIX, agent]
         assert command[: len(expected_prefix)] == expected_prefix, agent
         assert command[command.index("--allow") + 1] == "yolo", agent
         assert "--usage" in command and "--debug" in command, agent
         assert "--json" not in command and "--model" not in command, agent
-        if agent in {"claude", "codex", "gemini"}:
+        if agent in {"claude", "codex", "gemini", "antigravity"}:
             assert command[command.index("--prompt-file") + 1] == "/private/prompt.md", agent
         else:
             assert command[command.index("--prompt") + 1] == (

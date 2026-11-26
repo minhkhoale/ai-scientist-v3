@@ -29,14 +29,14 @@ from .files import missing_task_scaffold_files
 
 logger = logging.getLogger(__name__)
 
-VALID_AGENTS = ("claude", "codex", "cursor", "opencode", "gemini", "pi")
+VALID_AGENTS = ("claude", "codex", "cursor", "opencode", "gemini", "antigravity", "pi")
 VALID_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
 VALID_PAPER_PROFILES = ("default", "standalone")
 VALID_FINAL_AI_REVIEWS = ("disabled", "openai")
 VALID_LOG_FORMATS = ("human", "json")
 PROFILE_MODEL_ERROR = "agent.model is required when agent.profile is provided"
-GEMINI_REASONING_EFFORT_ERROR = (
-    "agent.reasoning_effort is not supported for gemini, including agent.pool entries"
+UNSUPPORTED_REASONING_EFFORT_ERROR = (
+    "agent.reasoning_effort is not supported for gemini or antigravity, including agent.pool entries"
 )
 
 
@@ -44,7 +44,7 @@ GEMINI_REASONING_EFFORT_ERROR = (
 class AgentConfig:
     name: str = field(
         default="claude",
-        metadata={"help": "Agent backend (claude|codex|cursor|opencode|gemini|pi)"},
+        metadata={"help": f"Agent backend: {VALID_AGENTS}"},
     )
     model: Optional[str] = field(
         default=None,
@@ -56,7 +56,7 @@ class AgentConfig:
     )
     reasoning_effort: Optional[str] = field(
         default=None,
-        metadata={"help": "Agent reasoning effort (unsupported by Gemini)"},
+        metadata={"help": "Agent reasoning effort (unsupported by Gemini and Antigravity)"},
     )
     pool: list[str] = field(
         default_factory=list,
@@ -483,9 +483,10 @@ def validate(cfg: InvestigationConfig) -> None:
             f"{VALID_REASONING_EFFORTS}, got {cfg.agent.reasoning_effort!r}"
         )
     if cfg.agent.reasoning_effort is not None and (
-        cfg.agent.name == "gemini" or "gemini" in cfg.agent.pool
+        cfg.agent.name in {"gemini", "antigravity"}
+        or {"gemini", "antigravity"}.intersection(cfg.agent.pool)
     ):
-        raise ConfigValidationError(GEMINI_REASONING_EFFORT_ERROR)
+        raise ConfigValidationError(UNSUPPORTED_REASONING_EFFORT_ERROR)
     seen_pool: set[str] = set()
     for agent in cfg.agent.pool:
         if agent not in VALID_AGENTS:

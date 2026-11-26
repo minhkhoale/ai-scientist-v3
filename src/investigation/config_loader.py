@@ -452,7 +452,7 @@ def _print_help() -> None:
         "  agsci investigate container.enabled=true container.network=host",
         "  agsci investigate --standalone-paper                      # standalone paper workflow",
         "  agsci investigate container.enabled=true execution.max_idea_cycles=5",
-        "  agsci investigate agent.name=gemini paths.task_dir=examples/kissing",
+        "  agsci investigate agent.name=antigravity paths.task_dir=examples/kissing",
         "",
         "Config keys:",
     ]

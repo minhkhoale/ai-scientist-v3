@@ -87,7 +87,7 @@ without running anything. Every option is a Hydra `key=value` override; `agsci
 run --help` lists them all.
 
 > **Note** — Agentic Scientist drives `claude`, `codex`, `cursor`, `opencode`,
-> `gemini`, and `pi` through
+> `gemini`, `antigravity`, and `pi` through
 > [Headless CLI](https://github.com/RobertTLange/headless-cli), so the same
 > experiment can be repeated across agents and models: pick one with
 > `agent.name=<agent> agent.model=<model>`.
@@ -136,7 +136,8 @@ login, no GPUs, and exercises every phase through to a compiled paper.
    ```
 
    Other agents: `codex` reads `OPENAI_API_KEY` or `CODEX_API_KEY`, `gemini`
-   reads `GEMINI_API_KEY`, `cursor` reads `CURSOR_API_KEY`, and Bedrock-backed
+   reads `GEMINI_API_KEY`, `antigravity` uses its OAuth files under
+   `~/.gemini/antigravity-cli`, `cursor` reads `CURSOR_API_KEY`, and Bedrock-backed
    Claude reads the `AWS_*` variables. Concept figures use `OPENAI_API_KEY`,
    fall back to `GEMINI_API_KEY`, and otherwise ship a plain export.
 

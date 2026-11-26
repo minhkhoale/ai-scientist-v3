@@ -360,6 +360,16 @@ def test_parse_multi_model_attribution_splits_usage_and_cost_without_double_coun
     assert event["billing_basis"] == "usage_only"
     assert event["usage"] == {"cached_input_tokens": 10, "input_tokens": 90, "output_tokens": 15}
 
+    [event] = _parse(tmp_path, [{"type": "result", "stats": {
+        "input_tokens": 90, "output_tokens": 15, "cached": 10,
+        "models": {"agy-model": {"input_tokens": 90, "output_tokens": 15, "cached": 10}},
+    }}], agent="antigravity", phase="idea", stage="generate", invocation_id="antigravity-1")
+    assert event["agent"] == "antigravity"
+    assert event["model"] == "agy-model"
+    assert event["billing_basis"] == "usage_only"
+    assert event["reported_cost_usd"] is None
+    assert event["usage"] == {"cached_input_tokens": 10, "input_tokens": 90, "output_tokens": 15}
+
     # invalid raw multi-model attribution keeps the normalized event
     for name, model_usage in _INVALID_ATTRIBUTIONS:
         [event] = _parse_claude(tmp_path, [{"type": "result", "modelUsage": model_usage},

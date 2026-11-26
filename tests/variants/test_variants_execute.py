@@ -1177,6 +1177,9 @@ def test_variants_config_defaults_overrides_and_validation_errors() -> None:
     cfg.agent.reasoning_effort = "high"
     assert any("not supported for gemini" in error for error in validate_variants_config(cfg))
 
+    cfg.agent.name = "antigravity"
+    assert any("not supported for antigravity" in error for error in validate_variants_config(cfg))
+
     # A profile requires a model.
     for name, model in (("missing", None), ("blank", "   ")):
         cfg = load_variants_config([])

@@ -140,6 +140,8 @@ AGENT_SKILL_DIR_PREFIXES = (
     (".cursor", "skills"),
     (".opencode", "skills"),
     (".gemini", "skills"),
+    (".gemini", "antigravity-cli", "skills"),
+    (".agents", "skills"),
     (".pi", "agent", "skills"),
 )
 VERIFICATION_SUMMARY_KEYS = (
