@@ -1,5 +1,6 @@
 """Immutable source graph and strict, quote-checked boundary primitives."""
 from dataclasses import dataclass
+import json
 import hashlib
 from typing import Any
 from src.ideation.literature.sources import LiteratureRecord
@@ -113,3 +114,33 @@ def supported_evidence(items, documents):
         except UnsupportedEvidence:
             continue
     return tuple(spans)
+
+
+def _compact_document(doc):
+    """What a role needs from a document: ids, section and text for quoting, and review citations."""
+    record = doc['record']
+    passages = [{'id': p['id'], 'section': p['section'], 'text': p['text'],
+                 **({'citations': p['citations']} if p.get('citations') else {})} for p in doc['passages']]
+    head = (record.get('abstract') or '')[:200]
+    compact_record = {'id': record['id'], 'title': record['title'],
+                      **({'year': record['year']} if record.get('year') else {})}
+    # Send the abstract only when no passage already carries it.
+    if head and not any(head in p['text'] for p in passages):
+        compact_record['abstract'] = record['abstract']
+    return {'record': compact_record, 'origin': doc['origin'], 'fulltext_status': doc.get('fulltext_status', ''),
+            'passages': passages}
+
+
+def _compact(value):
+    if isinstance(value, dict):
+        if 'record' in value and 'passages' in value and 'origin' in value:
+            return _compact_document(value)
+        return {k: _compact(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_compact(v) for v in value]
+    return value
+
+
+def prompt_data(data):
+    """Serialize role input compactly: trimmed documents, no whitespace between tokens."""
+    return json.dumps(_compact(data), ensure_ascii=False, separators=(',', ':'))

@@ -1,7 +1,6 @@
 """Resumable selective-reading and structural-gap workflow."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
-import json
 import logging
 import math
 from pathlib import Path
@@ -15,7 +14,7 @@ from .discovery import Hypothesis
 from .distance import candidate_methods, gap_distance, graph_priors, parse_coverage
 from .graph import (GapCandidate, GraphNode, ResearchGraph, canonicalize, detect_gaps,
                     namespace_fragment, parse_fragment, rank_relevance, select_sections)
-from .models import Passage, Evidence, ValidationError, identifier, object_fields, text
+from .models import prompt_data, Passage, Evidence, ValidationError, identifier, object_fields, text
 from .providers import Paper, retrieve
 from .report import FORMULA
 from .verification import verify_gap
@@ -42,7 +41,7 @@ class GraphGap:
 
 def _prompt(name, data):
     path = Path(__file__).parent / 'prompts' / f'{name}.md'
-    return path.read_text() + '\nUNTRUSTED DATA\n' + json.dumps(data, ensure_ascii=False)
+    return path.read_text() + '\nUNTRUSTED DATA\n' + prompt_data(data)
 
 
 def _chunks(values, size):
