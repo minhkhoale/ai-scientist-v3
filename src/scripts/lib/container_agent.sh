@@ -265,7 +265,7 @@ agent_streams_prompt_file() {
 }
 
 prompt_file_reference() {
-  printf 'Read the complete task instructions from %s, then follow them exactly.' "$1"
+  printf 'Read the complete task instructions from %s, then follow them exactly. Reading prompt.md is the only permitted tool use.' "$1"
 }
 
 AGENT_PYTHON_BIN="${AGENT_PYTHON_BIN:-$PYTHON_BIN}"

@@ -270,7 +270,7 @@ def test_pi_native_prompt_routes_through_headless(tmp_path: Path, mode: str) -> 
             "pi",
             *YOLO,
             "--prompt",
-            f"Read the complete task instructions from {prompt_file}, then follow them exactly.",
+            f"Read the complete task instructions from {prompt_file}, then follow them exactly. Reading prompt.md is the only permitted tool use.",
         ]
     else:
         prompt = "small prompt" if mode == "small_prompt" else "prompt"
@@ -475,9 +475,10 @@ def test_large_prompt_file_reaches_headless_without_large_argv(tmp_path: Path, a
     if agent in STDIN_PROMPT_AGENTS:
         expected += ["--prompt-file", str(prompt_file)]
     else:
+        pointer = f"Read the complete task instructions from {prompt_file}, then follow them exactly. Reading prompt.md is the only permitted tool use."
         expected += [
             "--prompt",
-            f"Read the complete task instructions from {prompt_file}, then follow them exactly.",
+            pointer,
         ]
     assert captured.splitlines()[1:] == expected
 

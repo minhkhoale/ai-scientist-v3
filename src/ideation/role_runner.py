@@ -48,7 +48,7 @@ def run_role(role: RoleName, prompt: str, *, out_dir: Path, agent: RoleAgent,
              runner: Callable[[list[str],int],int] | None = None) -> dict | None:
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True,exist_ok=True)
-    prompt += f'\nWrite the JSON object to {OUTPUT_FILE[role]} in the workspace.\n'
+    prompt += '\nReply with only the JSON object. Do not use tools.\n'
     (out_dir/'prompt.md').write_text(prompt)
     cmd = ['bash',str(Path(__file__).parents[1]/'scripts'/'ideation_role.sh'),'--agent',agent.agent,
            '--output-dir',str(out_dir),'--prompt-file',str(out_dir/'prompt.md'),'--expected-output',OUTPUT_FILE[role]]

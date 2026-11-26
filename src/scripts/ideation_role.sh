@@ -56,12 +56,20 @@ wait "$AGENT_PID" || status=$?
 AGENT_PID=""
 record_headless_cost_log "$PYTHON_BIN" "$LOG_FILE" ideation_role "$OUTPUT_DIR" "$(headless_cost_status "$status" 0)"
 [ "$status" -eq 0 ] || exit "$status"
-"$PYTHON_BIN" - "$OUTPUT_DIR/$EXPECTED_OUTPUT" <<'PY'
+PYTHONPATH="$SCRIPT_DIR/..${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$LOG_FILE" "$OUTPUT_DIR/$EXPECTED_OUTPUT" <<'PY'
 import json, sys
 from pathlib import Path
+from ideation.role_reply import parse_final_reply
+
+log_path, output_path = map(Path, sys.argv[1:])
 try:
-    value = json.loads(Path(sys.argv[1]).read_text())
+    value = json.loads(output_path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError('legacy role output must be a JSON object')
 except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(value, dict) else 1)
+    try:
+        value = parse_final_reply(log_path.read_text())
+    except (OSError, ValueError):
+        sys.exit(1)
+    output_path.write_text(json.dumps(value, ensure_ascii=False))
 PY
