@@ -15,7 +15,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER = REPO_ROOT / "src/scripts/lib/container_agent.sh"
 HEADLESS_AGENTS = ("claude", "codex", "cursor", "gemini", "antigravity", "opencode", "pi")
-STDIN_PROMPT_AGENTS = {"claude", "codex", "gemini", "antigravity"}
+# headless passes antigravity prompts as one argv string, which overflows on long prompts.
+STDIN_PROMPT_AGENTS = {"claude", "codex", "gemini"}
 HEADLESS_PREFIX = ["env", "HEADLESS_MODELS_DEV_CACHE=", "/usr/local/bin/headless"]
 YOLO = ["--debug", "--usage", "--allow", "yolo"]
 PRINT_INNER = "printf '%s\\n' \"${AGENT_INNER_CMD[@]}\"\n"

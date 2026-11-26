@@ -259,7 +259,7 @@ agent_runtime_allowed_env_keys() {
 
 agent_streams_prompt_file() {
   case "$1" in
-    claude|codex|gemini|antigravity) return 0 ;;
+    claude|codex|gemini) return 0 ;;
     *) return 1 ;;
   esac
 }
