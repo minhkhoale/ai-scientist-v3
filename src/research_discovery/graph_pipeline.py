@@ -527,6 +527,8 @@ def run_graph_discovery(*, topic, papers, manuscript, out, provider, settings, g
     accepted = [candidates[index] for index, _rank, ok, _reason in screened if ok][:settings.max_gaps]
     families = _families(accepted)
     gaps = [gap for candidate, family in zip(accepted, families) if (gap := _gap(candidate, graph, family))]
+    # Identical candidates yield the same gap id, and so the same cached step names; keep one.
+    gaps = [gap for i, gap in enumerate(gaps) if gap.id not in {g.id for g in gaps[:i]}]
     # Targeted reads inspect methods/results only for abstract-tier sources supporting each candidate.
     targeted_fulltext_errors = []
     for gap in list(gaps):
