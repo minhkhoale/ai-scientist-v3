@@ -229,3 +229,10 @@ def test_prompt_data_trims_documents_and_drops_duplicate_abstracts():
     assert set(first['passages'][0]) == {'id', 'section', 'text'}
     assert second['passages'][0]['citations'] == ['Lcited']
     assert ': ' not in prompt_data({'a': 1, 'b': [1, 2]})
+
+
+def test_manuscript_is_extracted_in_batches_of_24_passages():
+    from src.research_discovery.config import DiscoverySettings
+    from src.research_discovery.graph_pipeline import estimate_call_count
+    settings = DiscoverySettings()
+    assert estimate_call_count(0, 122, settings) - estimate_call_count(0, 0, settings) == 6

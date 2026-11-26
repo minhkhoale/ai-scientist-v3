@@ -9,7 +9,7 @@ class DiscoverySettings:
     max_papers: int = 100
     max_gaps: int = 10
     passage_chars: int = 3500
-    extraction_batch: int = 8
+    extraction_batch: int = 24  # manuscript passages per extraction call
     max_discovery_claims: int = 160
     context_passages: int = 48
     role_timeout: int = 1800
