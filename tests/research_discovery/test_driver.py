@@ -1,6 +1,8 @@
+from dataclasses import replace
 import json
 import pytest
 
+from src.research_discovery import ingest
 from src.research_discovery.config import DiscoverySettings
 from src.research_discovery.driver import run_discovery
 from src.research_discovery.graph import GraphEdge, GraphNode, ResearchGraph, parse_fragment
@@ -35,9 +37,12 @@ def fake_roles(calls, *, kill=None):
             for document in data['documents']:
                 if document['origin'] != 'paper' or not document['passages']: continue
                 source = document['record']['id']; passage = document['passages'][0]
+                method_name = {'Paper 0': 'Predictive planning',
+                               'Paper 1': 'Reactive regulation',
+                               'Paper 2': 'Bayesian state estimation'}[document['record']['title']]
                 nodes.extend([{'id': 'problem_' + source, 'type': 'problem', 'name': 'Long horizon control'},
                               {'id': 'assumption_' + source, 'type': 'assumption', 'name': 'Feedback is observable'},
-                              {'id': 'method_' + source, 'type': 'method', 'name': 'Feedback method ' + source}])
+                              {'id': 'method_' + source, 'type': 'method', 'name': method_name}])
                 span = {'source': source, 'passage': passage['id'], 'start': 0,
                         'end': len(passage['text']), 'quote': passage['text']}
                 edges.extend([{'id': 'addresses_' + source, 'type': 'addresses', 'source': 'method_' + source,
@@ -91,7 +96,20 @@ def args(tmp_path, run_role_fn):
         settings=DiscoverySettings(deep_papers=2, expansion_limit=0), log=lambda *_: None)
 
 
-def test_graph_pipeline_writes_tiered_artifacts_and_handoff(tmp_path):
+@pytest.mark.parametrize('paper_ids', [
+    None,
+    ('L950295f1', 'L508289fe', 'L747e84c0'),
+    ('Laaaaaaa0', 'Laaaaaaa1', 'Laaaaaaa2'),
+], ids=['path-derived', 'ci-identifiers', 'similar-identifiers'])
+def test_graph_pipeline_writes_tiered_artifacts_and_handoff(tmp_path, monkeypatch, paper_ids):
+    if paper_ids is not None:
+        original = ingest.make_record
+        def make_record(row, source='operator'):
+            record = original(row, source)
+            if record.title.startswith('Paper '):
+                return replace(record, id=paper_ids[int(record.title.split()[-1])])
+            return record
+        monkeypatch.setattr(ingest, 'make_record', make_record)
     calls = []; kw = args(tmp_path, fake_roles(calls)); report = run_discovery(**kw)
     out = kw['out_dir']
     assert report.exists() and (out / 'roadmap.md').exists()
