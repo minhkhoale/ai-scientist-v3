@@ -71,6 +71,8 @@ AGENT_SKILL_ROOTS = (
     ".cursor/skills",
     ".opencode/skills",
     ".gemini/skills",
+    ".gemini/antigravity-cli/skills",
+    ".agents/skills",
     ".pi/agent/skills",
 )
 

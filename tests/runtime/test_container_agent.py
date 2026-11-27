@@ -14,7 +14,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER = REPO_ROOT / "src/scripts/lib/container_agent.sh"
-HEADLESS_AGENTS = ("claude", "codex", "cursor", "gemini", "opencode", "pi")
+HEADLESS_AGENTS = ("claude", "codex", "cursor", "gemini", "antigravity", "opencode", "pi")
+# headless passes antigravity prompts as one argv string, which overflows on long prompts.
 STDIN_PROMPT_AGENTS = {"claude", "codex", "gemini"}
 HEADLESS_PREFIX = ["env", "HEADLESS_MODELS_DEV_CACHE=", "/usr/local/bin/headless"]
 YOLO = ["--debug", "--usage", "--allow", "yolo"]
@@ -269,7 +270,7 @@ def test_pi_native_prompt_routes_through_headless(tmp_path: Path, mode: str) -> 
             "pi",
             *YOLO,
             "--prompt",
-            f"Read the complete task instructions from {prompt_file}, then follow them exactly.",
+            f"Read the complete task instructions from {prompt_file}, then follow them exactly. Reading prompt.md is the only permitted tool use.",
         ]
     else:
         prompt = "small prompt" if mode == "small_prompt" else "prompt"
@@ -329,7 +330,7 @@ def test_inner_command_exact_argv_and_claude_prompt_file_keeps_large_prompt_out_
 
 @pytest.mark.parametrize("agent", HEADLESS_AGENTS)
 def test_every_agent_uses_headless_yolo(agent: str) -> None:
-    reasoning_effort = "" if agent == "gemini" else "high"
+    reasoning_effort = "" if agent in {"gemini", "antigravity"} else "high"
     run = _ok(
         f"export AGENT_REASONING_EFFORT={q(reasoning_effort)}\n"
         f"build_agent_inner_command {agent} prompt test-model '' 1\n{PRINT_INNER}"
@@ -374,6 +375,37 @@ def test_headless_binary_selection_model_default_wrapper_python_and_idea_script_
     assert "PI_CODING_AGENT_TOOLS" not in idea_script
 
 
+def test_antigravity_config_and_credentials_are_seeded() -> None:
+    run = _ok(
+        "printf 'CONFIG=%s\\n' \"$(agent_config_rel_dir antigravity)\"\n"
+        "seed_paths_for_agent antigravity"
+    )
+    assert run.stdout.splitlines() == [
+        "CONFIG=.gemini/antigravity-cli",
+        ".gemini/antigravity-cli/antigravity-oauth-token",
+        ".gemini/antigravity-cli/settings.json",
+        ".gemini/antigravity-cli/installation_id",
+        ".gemini/antigravity-cli/jetski_state.pbtxt",
+        ".gemini/config",
+    ]
+
+
+def test_antigravity_rejects_reasoning_effort() -> None:
+    run = _sh("AGENT_REASONING_EFFORT=high build_agent_inner_command antigravity prompt '' ''")
+    assert run.returncode == 2
+    assert "not supported for antigravity" in run.stderr
+
+
+def test_idea_script_accepts_antigravity_argument_before_rejecting_effort() -> None:
+    run = subprocess.run(
+        ["bash", str(REPO_ROOT / "src/scripts/idea.sh"), "--agent", "antigravity", "--reasoning-effort", "high"],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert run.returncode != 0
+    assert "reasoning-effort is not supported for antigravity" in run.stderr
+    assert "Unknown argument: antigravity" not in run.stderr
+
+
 def test_claude_billing_left_to_headless_and_codex_profile_requires_explicit_model(tmp_path: Path) -> None:
     # modeled claude headless leaves billing selection to headless
     captured = tmp_path / "auth-mode.txt"
@@ -413,7 +445,7 @@ def test_large_prompt_file_reaches_headless_without_large_argv(tmp_path: Path, a
         "printf '%s\\n' \"$@\" >> \"$CAPTURE_ARGS\"\n"
         "cat > \"$CAPTURE_STDIN\"\n",
     )
-    reasoning_effort = "" if agent == "gemini" else "high"
+    reasoning_effort = "" if agent in {"gemini", "antigravity"} else "high"
     env = os.environ | {
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "CAPTURE_ARGS": str(captured_args),
@@ -443,9 +475,10 @@ def test_large_prompt_file_reaches_headless_without_large_argv(tmp_path: Path, a
     if agent in STDIN_PROMPT_AGENTS:
         expected += ["--prompt-file", str(prompt_file)]
     else:
+        pointer = f"Read the complete task instructions from {prompt_file}, then follow them exactly. Reading prompt.md is the only permitted tool use."
         expected += [
             "--prompt",
-            f"Read the complete task instructions from {prompt_file}, then follow them exactly.",
+            pointer,
         ]
     assert captured.splitlines()[1:] == expected
 
@@ -546,6 +579,13 @@ def test_run_agent_prompt_mounts_seed_home_env_file_results_root_and_task_source
     assert "HOME=/home/agent-home" in args
     assert f"{dock.container_home}:/home/agent-home" in args
     assert f"{dock.container_home}:/home/agent" not in args
+    dock.run(
+        f"run_agent_prompt antigravity prompt '' '' {q(str(dock.workspace))} 1 "
+        f"'test-image:latest' 'bridge' {q(str(dock.container_home))}\n"
+    )
+    args = dock.args()
+    assert "AGY_HOME=/home/agent-home/.gemini/antigravity-cli" in args
+    assert "ANTIGRAVITY_HOME=/home/agent-home/.gemini/antigravity-cli" in args
     # forwards env file to docker
     env_file = dock.root / ".env"
     env_file.write_text("AWS_REGION=us-east-1\n", encoding="utf-8")

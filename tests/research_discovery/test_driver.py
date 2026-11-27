@@ -47,6 +47,16 @@ def fake_roles(calls, *, kill=None):
             return {'nodes': nodes, 'edges': edges}
         if name == 'canonicalize':
             return {'clusters': data['clusters']}
+        if name == 'coverage':
+            doc = next(d for d in data['documents'] if d['origin'] == 'paper')
+            passage = doc['passages'][0]
+            span = {'source': doc['record']['id'], 'passage': passage['id'], 'start': 0,
+                    'end': len(passage['text']), 'quote': passage['text']}
+            cell = lambda level, ev: {'level': level, 'evidence': ev}
+            return {'facets': {f: f + ' facet' for f in ('problem', 'setting', 'failure', 'resolution')},
+                    'methods': [{'method_id': m['method_id'], 'cells': {'problem': cell('covered', [span]),
+                        'setting': cell('partial', [span]), 'failure': cell('unknown', []), 'resolution': cell('covered', [])},
+                        'required_changes': [{'kind': 'relax_assumption', 'description': 'Drop it.'}]} for m in data['methods']]}
         if name == 'synthesize':
             problem = next(n['id'] for n in (row['problem'] for row in data['roadmap']))
             return {'gaps': [{'kind': 'shared_assumption', 'statement': 'Synthesized gap.', 'rationale': 'Several papers.',
@@ -95,7 +105,11 @@ def test_graph_pipeline_writes_tiered_artifacts_and_handoff(tmp_path):
     assert len(parse_gaps({'gaps': rows}, allowed)) >= 3
     assert 'Estimated LLM calls before extraction' not in report.read_text()
     assert json.loads((out / 'status.json').read_text())['estimated_calls'] > 0
-    assert 'graph_extract' in calls and 'screen' in calls and 'canonicalize' in calls
+    assert 'graph_extract' in calls and 'screen' in calls and 'canonicalize' in calls and 'coverage' in calls
+    rows = json.loads((out / 'research_gaps.json').read_text())['gaps']
+    measured = [r['distance'] for r in rows if r['distance']]
+    assert measured and all(0 <= d['scd_low'] <= d['scd_high'] <= 1 for d in measured)
+    assert 'Gap-distance profile' in report.read_text()
 
 
 def test_graph_pipeline_resumes_after_interruption_without_repeating_finished_steps(tmp_path):

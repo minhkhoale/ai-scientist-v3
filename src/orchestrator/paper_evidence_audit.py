@@ -98,6 +98,8 @@ _AGENT_SKILL_DIR_PREFIXES = (
     (".cursor", "skills"),
     (".opencode", "skills"),
     (".gemini", "skills"),
+    (".gemini", "antigravity-cli", "skills"),
+    (".agents", "skills"),
     (".pi", "agent", "skills"),
 )
 _AGENT_NAMESPACE_NAMES = {prefix[0] for prefix in _AGENT_SKILL_DIR_PREFIXES}

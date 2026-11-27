@@ -200,7 +200,7 @@ All options are passed as `key=value` overrides on the command line.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `agent.name` | string | `claude` | Agent backend (`claude`, `codex`, `cursor`, `opencode`, `gemini`, `pi`) |
+| `agent.name` | string | `claude` | Agent backend (`claude`, `codex`, `cursor`, `opencode`, `gemini`, `antigravity`, `pi`) |
 | `agent.model` | string | `null` | Model override forwarded through Headless; `null` uses Headless's selected/configured default |
 | `agent.profile` | string | `null` | Codex profile forwarded through Headless; requires `agent.name=codex` and explicit `agent.model`; the provider must authenticate with `OPENAI_API_KEY` or `CODEX_API_KEY` |
 | `agent.reasoning_effort` | string | `null` | Global effort for every invocation: `low`, `medium`, `high`, or `xhigh`; unsupported when Gemini is selected directly or through `agent.pool` |
@@ -717,7 +717,7 @@ checked-out copy needs those rewritten before it can be resumed.
 
 ## Container/auth notes
 
-- Container image includes `codex`, `claude`, `gemini`, `cursor-agent`, `opencode`, `pi`.
+- Container image includes `codex`, `claude`, `gemini`, `agy`, `cursor-agent`, `opencode`, `pi`.
 - In `container.enabled=true` mode, paper LaTeX compile can fall back to the Docker image when host `pdflatex`/`bibtex` are unavailable.
 - Claude Bedrock: when AWS keys exist in the env file, launcher auto-sets `CLAUDE_CODE_USE_BEDROCK=1` unless already configured.
 - Claude OAuth: set `CLAUDE_CODE_OAUTH_TOKEN` in `.env` for containerized OAuth usage.

@@ -453,6 +453,18 @@ def test_doctor_selected_agent_cli_and_credentials(tmp_path) -> None:
     pi = doctor.check_selected_credentials(host, _run_config(**{"agent.name": "pi"}))
     assert pi.status == "warn" and "provider-dependent" in pi.detail
 
+    antigravity = _run_config(**{
+        "agent.name": "antigravity", "container.env_file": "",
+        "container.auth_root": str(host.repo_root),
+    })
+    assert doctor.check_selected_agent_cli(host, antigravity).detail.startswith("antigravity (agy)")
+    assert doctor.check_selected_credentials(host, antigravity).status == "warn"
+    token = host.repo_root / ".gemini/antigravity-cli/antigravity-oauth-token"
+    token.parent.mkdir(parents=True)
+    token.write_text("opaque-token", encoding="utf-8")
+    auth_check = doctor.check_selected_credentials(host, antigravity)
+    assert auth_check.status == "ok" and "opaque-token" not in auth_check.detail
+
     # codex accepts a subscription login directory
     host = _healthy_host(tmp_path / "codex")
     host.environ = {}

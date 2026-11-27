@@ -31,7 +31,6 @@ from typing import (
 from src.investigation.config import (
     VALID_AGENTS,
     PROFILE_MODEL_ERROR,
-    GEMINI_REASONING_EFFORT_ERROR,
     VALID_REASONING_EFFORTS,
     ContainerConfig,
     LoggingConfig,
@@ -967,8 +966,8 @@ def validate_pipeline_config(cfg: PipelineConfig) -> list[str]:
         and cfg.agent.reasoning_effort not in VALID_REASONING_EFFORTS
     ):
         errors.append(f"agent.reasoning_effort must be one of {VALID_REASONING_EFFORTS}")
-    if cfg.agent.name == "gemini" and cfg.agent.reasoning_effort is not None:
-        errors.append(GEMINI_REASONING_EFFORT_ERROR)
+    if cfg.agent.name in {"gemini", "antigravity"} and cfg.agent.reasoning_effort is not None:
+        errors.append(f"agent.reasoning_effort is not supported for {cfg.agent.name}")
 
     if cfg.container.enabled or ("paper" in selected and phase_uses_container(cfg, "paper")):
         auth_root_raw = str(cfg.container.auth_root)

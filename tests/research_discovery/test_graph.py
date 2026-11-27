@@ -215,3 +215,24 @@ def test_synthesized_gaps_need_a_problem_and_cite_supporting_edges():
     assert gap.pattern == 'synthesis:shared_assumption' and set(gap.edge_ids) == {'e1', 'e2', 'e3', 'e4'}
     with pytest.raises(ValidationError):
         _validate_synthesis({'gaps': [{**row, 'kind': 'vibes', 'node_ids': ['p']}]}, graph)
+
+
+def test_prompt_data_trims_documents_and_drops_duplicate_abstracts():
+    import json
+    from dataclasses import asdict
+    from src.research_discovery.models import prompt_data
+    paper = doc('Paper', 'An abstract sentence that a passage repeats.')
+    review = doc('Review', 'Cites the paper.', 'manuscript', ['Lcited'])
+    data = json.loads(prompt_data({'topic': 't', 'documents': [asdict(paper), asdict(review)]}))
+    first, second = data['documents']
+    assert set(first['record']) == {'id', 'title'} and first['origin'] == 'paper'
+    assert set(first['passages'][0]) == {'id', 'section', 'text'}
+    assert second['passages'][0]['citations'] == ['Lcited']
+    assert ': ' not in prompt_data({'a': 1, 'b': [1, 2]})
+
+
+def test_manuscript_is_extracted_in_batches_of_24_passages():
+    from src.research_discovery.config import DiscoverySettings
+    from src.research_discovery.graph_pipeline import estimate_call_count
+    settings = DiscoverySettings()
+    assert estimate_call_count(0, 122, settings) - estimate_call_count(0, 0, settings) == 6

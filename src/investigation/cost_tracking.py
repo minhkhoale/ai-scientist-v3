@@ -581,7 +581,7 @@ def _multi_model_headless_events(
 
     stats = final.get("stats")
     stats_models = stats.get("models") if isinstance(stats, Mapping) else None
-    if agent != "gemini" or not isinstance(stats_models, Mapping) or len(stats_models) <= 1:
+    if agent not in {"gemini", "antigravity"} or not isinstance(stats_models, Mapping) or len(stats_models) <= 1:
         return None
     events = [
         _event(
@@ -833,6 +833,7 @@ def import_autoillustrate_metrics(
             "headless:codex",
             "headless:cursor",
             "headless:gemini",
+            "headless:antigravity",
             "headless:opencode",
             "headless:pi",
         }

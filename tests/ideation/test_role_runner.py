@@ -41,3 +41,24 @@ def test_role_does_not_reuse_campaign_session(tmp_path,monkeypatch):
     fake.write_text('#!/usr/bin/env python3\nimport json,os\nfrom pathlib import Path\nPath("verdict.json").write_text(json.dumps({"session":os.environ.get("AGENT_CONTAINER_SESSION_NAME","")}))\n')
     fake.chmod(0o755); monkeypatch.setenv('HEADLESS_BIN',str(fake))
     assert run_role('judge_pairwise','Judge',out_dir=tmp_path/'role',agent=RoleAgent('codex'),timeout_seconds=10,container=None)=={'session':''}
+
+
+def test_role_reply_writes_expected_output_file(tmp_path, monkeypatch):
+    fake = tmp_path / 'headless'
+    fake.write_text('#!/usr/bin/env python3\nprint(\'--- final message ---\\n{"winner":"b","rationale":"clear"}\')\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv('HEADLESS_BIN', str(fake))
+    output = tmp_path / 'role'
+    result = run_role('judge_pairwise', 'Judge.', out_dir=output, agent=RoleAgent('codex'),
+                      timeout_seconds=10, container=None)
+    assert result == {'winner': 'b', 'rationale': 'clear'}
+    assert (output / 'verdict.json').read_text() == '{"winner": "b", "rationale": "clear"}'
+
+
+def test_role_file_mode_remains_fallback(tmp_path, monkeypatch):
+    fake = tmp_path / 'headless'
+    fake.write_text('#!/usr/bin/env python3\nfrom pathlib import Path\nPath("verdict.json").write_text(\'{"winner":"a"}\')\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv('HEADLESS_BIN', str(fake))
+    assert run_role('judge_pairwise', 'Judge.', out_dir=tmp_path / 'role', agent=RoleAgent('codex'),
+                    timeout_seconds=10, container=None) == {'winner': 'a'}

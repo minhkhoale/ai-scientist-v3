@@ -1,10 +1,9 @@
 """Independent solution searches and conservative evidence-checked gap verdicts."""
 from dataclasses import asdict, dataclass
-import json
 import logging
 from pathlib import Path
 from .artifacts import digest, read_json, write_json
-from .models import (supported_evidence, Document, Evidence, ValidationError, object_fields, text, array,
+from .models import (prompt_data, supported_evidence, Document, Evidence, ValidationError, object_fields, text, array,
                      document_from_dict)
 from .ingest import passages
 from .context import bounded_documents
@@ -117,9 +116,9 @@ def verify_gap(gap,documents,*,provider,steps,out,settings,judge=None):
     ids=set(gap.closest_prior)|{id for search in searches for id in search.result_ids}
     relevant=bounded_documents([d for d in documents if d.record.id in ids],gap.statement+' '+gap.closing_evidence,
         required=gap.evidence,limit=settings.context_passages)
-    prompt=(Path(__file__).parent/'prompts/verify.md').read_text()+'\nUNTRUSTED DATA\n'+json.dumps({
+    prompt=(Path(__file__).parent/'prompts/verify.md').read_text()+'\nUNTRUSTED DATA\n'+prompt_data({
         'gap':asdict(gap),'searches':[asdict(s) for s in searches],
-        'documents':[asdict(d) for d in relevant]},ensure_ascii=False)
+        'documents':[asdict(d) for d in relevant]})
     revision=digest({'gap':asdict(gap),'searches':[asdict(s) for s in searches]})[:12]
     result=steps.run('verify','verify_'+gap.id+'_'+revision,prompt,
         lambda raw:parse_verification(raw,gap_id=gap.id,documents=relevant,searches=searches),agent=judge)

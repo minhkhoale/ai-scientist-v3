@@ -389,5 +389,6 @@ def test_catalog_models_and_agent_cli_image_pins() -> None:
         "@anthropic-ai/claude-code@2.1.285",
         "@earendil-works/pi-coding-agent@0.85.1",
         "opencode-ai@1.18.29",
+        "https://antigravity.google/cli/install.sh",
     ):
         assert pin in dockerfile
