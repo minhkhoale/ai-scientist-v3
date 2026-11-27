@@ -1,0 +1,161 @@
+import json
+import pytest
+from src.research_discovery.artifacts import Steps
+from src.research_discovery.providers import ScholarProvider, retrieve
+from src.research_discovery.models import ValidationError
+from src.ideation.role_runner import RoleAgent
+
+
+def work(id='W1',title='A method',refs=None):
+    return dict(id='https://openalex.org/'+id,title=title,publication_year=2025,
+                abstract_inverted_index={'Unstable':[0],'rollouts':[1]},authorships=[],
+                ids={'doi':'https://doi.org/10.1234/'+id},referenced_works=refs or [],
+                best_oa_location={'pdf_url':'https://example.org/'+id+'.pdf'})
+
+
+def test_real_provider_protocol_search_expansion_and_fulltext(tmp_path):
+    calls=[]
+    def http(url):
+        calls.append(url)
+        if url.endswith('.pdf'):return b'%PDF-content'
+        if '/works/W2' in url:return json.dumps(work('W2','An existing solution')).encode()
+        return json.dumps({'results':[work(refs=['https://openalex.org/W2'])]}).encode()
+    provider=ScholarProvider(http=http,sleep=lambda _:None,pdf_text=lambda p:'Actual full-text finding.')
+    papers=provider.search('diffusion',2)
+    expanded=provider.expand(papers[0],2)
+    assert any(p.record.title=='An existing solution' for p in expanded)
+    assert provider.fulltext(papers[0],tmp_path)=='Actual full-text finding.'
+    assert any('search=' in u for u in calls) and any('cites' in u for u in calls)
+
+
+def test_identifier_lists_and_retrieval_resume(tmp_path):
+    from src.research_discovery.providers import Paper
+    from src.ideation.literature.sources import LiteratureRecord
+    class Provider:
+        def __init__(self):self.calls=[]
+        def lookup(self,id):self.calls.append(id);return Paper(LiteratureRecord('Lseed','Seed',abstract='A limitation'))
+        def search(self,query,limit):self.calls.append(query);return []
+        def expand(self,paper,limit):return []
+        def fulltext(self,paper,root):return ''
+    ids=tmp_path/'ids.txt';ids.write_text('arxiv:2501.12345\ndoi:10.1234/test\n')
+    review=tmp_path/'review.md';review.write_text('# R\n\nA limitation.')
+    provider=Provider()
+    first=retrieve(topic='Topic',papers=[ids],manuscript=review,out=tmp_path/'out',provider=provider)
+    calls=list(provider.calls)
+    second=retrieve(topic='Topic',papers=[ids],manuscript=review,out=tmp_path/'out',provider=provider)
+    assert first==second and provider.calls==calls
+    assert 'arxiv:2501.12345' in calls and 'doi:10.1234/test' in calls
+
+
+def test_role_checkpoint_validates_before_completion_and_recovers(tmp_path):
+    calls=[]
+    def role(name,prompt,**kw):calls.append(name);return {'ok':True}
+    steps=Steps(tmp_path,RoleAgent('codex'),role)
+    def check(raw):
+        if not raw.get('ok'):raise ValidationError('bad')
+        return raw
+    assert steps.run('extract','a','prompt',check)=={'ok':True}
+    steps.run('extract','a','prompt',check)
+    assert calls==['extract']
+    with pytest.raises(ValidationError):steps.run('extract','a','changed prompt',check)
+    bad=Steps(tmp_path/'bad',RoleAgent('codex'),lambda *a,**k:None)
+    with pytest.raises(ValidationError):bad.run('extract','a','prompt',check)
+    assert not (tmp_path/'bad/a/completed.json').exists()
+
+
+def test_identifier_seed_fetches_available_fulltext(tmp_path):
+    from src.research_discovery.providers import Paper
+    from src.ideation.literature.sources import LiteratureRecord
+    class Provider:
+        def lookup(self,id):return Paper(LiteratureRecord('Lseed','Seed',abstract='Abstract',url='https://arxiv.org/abs/2501.12345'),'https://arxiv.org/pdf/2501.12345')
+        def search(self,*a):return []
+        def expand(self,*a):return []
+        def fulltext(self,paper,out):return 'Full text: a concrete limitation.'
+    review=tmp_path/'review.md';review.write_text('# R\n\nA claim.')
+    docs=retrieve(topic='Topic',papers=['2501.12345'],manuscript=review,out=tmp_path/'out',provider=Provider())
+    seed=next(d for d in docs if d.origin=='paper')
+    assert seed.fulltext_status=='fulltext_pdf' and 'concrete limitation' in seed.passages[0].text
+
+
+def test_partial_role_output_is_retried_and_finished_file_is_recovered(tmp_path):
+    calls=[]
+    def role(name,prompt,**kwargs):calls.append(name);return {'ok':True}
+    steps=Steps(tmp_path,RoleAgent('codex'),role)
+    directory=tmp_path/'partial';directory.mkdir();(directory/'candidate.json').write_text('{')
+    assert steps.run('extract','partial','p',lambda r:r)=={'ok':True}
+    complete=tmp_path/'finished';complete.mkdir();(complete/'candidate.json').write_text('{"ok": true}')
+    assert steps.run('extract','finished','p',lambda r:r)=={'ok':True}
+    assert calls==['extract']
+
+
+def test_native_role_reuses_transport_without_registering_roles(monkeypatch,tmp_path):
+    from src.research_discovery import artifacts
+    seen=[]
+    def runner(name,prompt,**kwargs):seen.append((name,prompt));return {'claims':[]}
+    monkeypatch.setattr(artifacts,'run_role',runner)
+    assert artifacts.native_role('extract','discovery prompt',out_dir=tmp_path)=={'claims':[]}
+    assert seen==[('generate','discovery prompt')]
+
+
+def test_manuscript_identifiers_seed_papers_before_expansion(tmp_path):
+    from src.research_discovery.providers import Paper
+    from src.research_discovery.ingest import make_record
+    class Provider:
+        def __init__(self):self.calls=[]
+        def lookup(self,id):
+            self.calls.append(id)
+            return Paper(make_record({'title':'Paper cited only by review','url':'https://doi.org/10.1234/review-only','abstract':'A limitation.'}))
+        def search(self,*a):return []
+        def expand(self,*a):return []
+        def fulltext(self,*a):return ''
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA limitation [@only].\n\n## References\n- [@only] Paper cited only by review. https://doi.org/10.1234/review-only')
+    provider=Provider();docs=retrieve(topic='Topic',papers=[],manuscript=review,out=tmp_path/'out',provider=provider)
+    paper=next(d for d in docs if d.origin=='paper');manuscript=next(d for d in docs if d.origin=='manuscript')
+    assert manuscript.passages[0].citations==(paper.record.id,)
+    assert provider.calls==['doi:10.1234/review-only']
+
+
+def test_offline_identifier_input_does_not_access_network(tmp_path):
+    from src.research_discovery.config import DiscoverySettings
+    class Provider:
+        def lookup(self,id):pytest.fail('offline lookup attempted network')
+    review=tmp_path/'review.md';review.write_text('# R\n\nA claim.')
+    with pytest.raises(ValidationError,match='offline'):
+        retrieve(topic='Topic',papers=['2501.12345'],manuscript=review,out=tmp_path/'out',provider=Provider(),settings=DiscoverySettings(offline=True))
+
+
+def test_openalex_requests_carry_api_key_only_for_openalex():
+    from src.research_discovery.providers import ScholarProvider
+    urls=[]
+    provider=ScholarProvider(http=lambda u:(urls.append(u),b'{}')[1],sleep=lambda s:None,api_key='k1')
+    provider.get('https://api.openalex.org/works?search=x');provider.get('https://export.arxiv.org/api/query?id_list=1')
+    assert urls[0].endswith('&api_key=k1') and 'api_key' not in urls[1]
+
+
+def test_cached_retrieval_is_reused_when_graph_settings_change(tmp_path):
+    from dataclasses import replace
+    from src.research_discovery.config import DiscoverySettings
+    review=tmp_path/'review.md';review.write_text('# Review\n\nA claim.')
+    class Provider:
+        def __init__(self):self.searches=0
+        def search(self,*args):self.searches+=1;return []
+    provider=Provider();out=tmp_path/'run'
+    first=retrieve(topic='Topic',papers=[],manuscript=review,out=out,provider=provider,
+                   settings=DiscoverySettings())
+    second=retrieve(topic='Topic',papers=[],manuscript=review,out=out,provider=provider,
+                    settings=replace(DiscoverySettings(),deep_papers=2,parallel=1))
+    assert second==first and provider.searches==1
+
+
+def test_retry_after_over_sixty_seconds_stops_provider():
+    from src.research_discovery.providers import ProviderHttpStatusError
+    calls=[]
+    def http(url):
+        calls.append(url)
+        raise ProviderHttpStatusError(429, '61')
+    provider=ScholarProvider(http=http,sleep=lambda _:None,api_key='')
+    with pytest.raises(OSError,match='exceeds 60s'):
+        provider.get('https://api.openalex.org/works')
+    with pytest.raises(OSError,match='provider paused'):
+        provider.get('https://api.openalex.org/works')
+    assert len(calls)==1

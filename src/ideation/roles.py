@@ -7,11 +7,11 @@ from typing import Any, Literal, Mapping, get_args
 from src.orchestrator.idea_bundle import normalize_idea_bundle, IdeaBundleValidationError
 from .pool import Candidate, Review
 
-RoleName = Literal['generate','reflect','judge_pairwise','judge_debate','evolve_combine','evolve_simplify','evolve_out_of_box','evolve_feasibility','metareview','generate_debate','verify','parse_goal','codebase_scan','overview','concretize']
+RoleName = Literal['generate','reflect','judge_pairwise','judge_debate','evolve_combine','evolve_simplify','evolve_out_of_box','evolve_feasibility','metareview','generate_debate','verify','parse_goal','codebase_scan','gap_analysis','overview','concretize']
 OUTPUT_FILE: Mapping[RoleName,str] = {r:('candidate.json' if r=='generate' or r.startswith('evolve_') else 'review.json' if r=='reflect' else 'feedback.json' if r=='metareview' else 'verdict.json') for r in get_args(RoleName)}
 
 OUTPUT_FILE = {**OUTPUT_FILE, 'generate_debate':'candidate.json', 'verify':'review.json',
-               'parse_goal':'plan.json', 'codebase_scan':'codebase.json', 'overview':'overview.json', 'concretize':'candidate.json'}
+               'parse_goal':'plan.json', 'codebase_scan':'codebase.json', 'gap_analysis':'gaps.json', 'overview':'overview.json', 'concretize':'candidate.json'}
 
 
 class RoleOutputError(ValueError):
@@ -39,7 +39,7 @@ DEFAULT_PROMPT_DIR = Path(__file__).parents[1]/'prompts'/'ideation'
 
 def render_role(role: RoleName, ctx: RoleContext, *, prompt_dir: Path = DEFAULT_PROMPT_DIR, **slots: str) -> str:
     if role not in OUTPUT_FILE: raise ValueError(f'unknown role {role}')
-    if prompt_dir == DEFAULT_PROMPT_DIR and role in ('generate_debate','verify','parse_goal','codebase_scan','overview'):
+    if prompt_dir == DEFAULT_PROMPT_DIR and role in ('generate_debate','verify','parse_goal','codebase_scan','gap_analysis','overview'):
         prompt_dir = DEFAULT_PROMPT_DIR.parent/'proposal'
     text = (prompt_dir/f'{role}.md').read_text()
     values = {key.upper():str(value) for key,value in asdict(ctx).items()}
