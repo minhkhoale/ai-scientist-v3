@@ -233,10 +233,11 @@ def test_agent_script_validates_exports_and_logs_reasoning_effort(script_name: s
         in completed.stderr
     )
 
-    # reasoning effort is not supported for gemini
-    completed = _run_script(script_name, "--agent", "gemini", "--reasoning-effort", "high")
-    assert completed.returncode == 1
-    assert "--reasoning-effort is not supported for gemini" in completed.stderr
+    # reasoning effort is not supported for Gemini or Antigravity
+    for agent in ("gemini", "antigravity"):
+        completed = _run_script(script_name, "--agent", agent, "--reasoning-effort", "high")
+        assert completed.returncode == 1
+        assert f"--reasoning-effort is not supported for {agent}" in completed.stderr
 
     # the override is exported and logged
     script = (SCRIPTS / script_name).read_text(encoding="utf-8")

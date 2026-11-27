@@ -226,6 +226,7 @@ if [ "$STAGE_SKILLS" -eq 1 ]; then
     cursor) AGENT_CONFIG_DIR=".cursor" ;;
     opencode) AGENT_CONFIG_DIR=".opencode" ;;
     gemini) AGENT_CONFIG_DIR=".gemini" ;;
+    antigravity) AGENT_CONFIG_DIR=".gemini/antigravity-cli" ;;
     pi) AGENT_CONFIG_DIR=".pi/agent" ;;
     *)
       echo "Unsupported agent: $AGENT" >&2
@@ -233,7 +234,11 @@ if [ "$STAGE_SKILLS" -eq 1 ]; then
       ;;
   esac
 
-  FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+  if [ "$AGENT" = "antigravity" ]; then
+    FORMATTED_SKILLS_REL_DIR=".agents/skills"
+  else
+    FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+  fi
   (
     cd "$WORK_DIR"
     "$PYTHON_BIN" - "$REPO_ROOT" "$FORMATTED_SKILLS_REL_DIR" "$WORK_DIR" "$ATTEMPT_ID" "$IDEA_ID" "$IDEA_DIR_NAME" "$MAX_PROGRAM_EVALS" <<'PY'

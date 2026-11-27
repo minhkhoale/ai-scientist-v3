@@ -585,7 +585,7 @@ def _write_harness_capture_python(bin_dir: Path) -> Path:
 
 
 def _write_fake_agents(bin_dir: Path) -> None:
-    for binary_name in ("headless", "claude", "agent", "opencode", "gemini", "pi"):
+    for binary_name in ("headless", "claude", "agent", "opencode", "gemini", "agy", "pi"):
         _write_fake_agent(bin_dir, binary_name)
 
 
@@ -4506,6 +4506,7 @@ class RunShAgentExecutionTests(unittest.TestCase):
             ("cursor", ".cursor"),
             ("opencode", ".opencode"),
             ("gemini", ".gemini"),
+            ("antigravity", ".agents"),
             ("pi", ".pi/agent"),
         ):
             with self.subTest(agent=agent):

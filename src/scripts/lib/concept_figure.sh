@@ -457,6 +457,14 @@ concept_figure_auth_paths() {
         ".gemini/state.json" \
         ".gemini/installation_id"
       ;;
+    antigravity)
+      printf '%s\n' \
+        ".gemini/antigravity-cli/antigravity-oauth-token" \
+        ".gemini/antigravity-cli/settings.json" \
+        ".gemini/antigravity-cli/installation_id" \
+        ".gemini/antigravity-cli/jetski_state.pbtxt" \
+        ".gemini/config"
+      ;;
     *) return 1 ;;
   esac
 }
@@ -635,6 +643,7 @@ select_concept_figure_backend() {
       add_concept_figure_secret_key "OPENAI_API_KEY"
       ;;
     gemini) add_concept_figure_secret_key "GEMINI_API_KEY" ;;
+    antigravity) ;;
     opencode)
       CONCEPT_FIGURE_SEED_AGENT_AUTH=0
       case "$(concept_figure_setting PAPER_CONCEPT_FIGURE_AGENT_PROVIDER)" in

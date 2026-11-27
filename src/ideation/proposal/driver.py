@@ -14,7 +14,7 @@ from src.ideation.profiles import PROFILES
 from src.ideation.roles import RoleContext, RoleOutputError, OUTPUT_FILE, render_role
 from src.ideation.role_runner import RoleAgent, run_role
 from src.ideation.round import RoundSettings, run_tournament_round, _read, _write_once, _rows
-from .schema import parse_plan, parse_codebase
+from .schema import parse_plan, parse_codebase, parse_gaps, render_gap
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,16 @@ def run_proposal(*, goal: str, out_dir: Path, corpus: Sequence[LiteratureRecord]
     plan_text = json.dumps(plan,indent=2)
     ctx = replace(ctx,task_goal=plan_text,goal_plan=plan_text,focus_axes=tuple(plan['focus_axes']),
                   codebase=json.dumps({'root':str(codebase), **scan}) if scan is not None else '(no codebase)')
-    profile = replace(profile,parse_candidate=partial(profile.parse_candidate,codebase_root=codebase))
+    # Ideas must attack a gap the literature evidences, so map the gaps before generating.
+    gaps = None
+    if corpus:
+        gaps_path = out_dir/'gaps.json'
+        gaps = parse_gaps(_read(gaps_path) if gaps_path.exists() else role('gap_analysis',ctx),pack_ids(corpus))
+        _write_once(gaps_path,{'gaps':gaps})
+        plan_text = json.dumps({**plan,'literature_gaps':gaps},indent=2)
+        ctx = replace(ctx,task_goal=plan_text,goal_plan=plan_text,focus_axes=tuple(map(render_gap,gaps)))
+    profile = replace(profile,parse_candidate=partial(profile.parse_candidate,codebase_root=codebase,
+                      gap_ids=frozenset(g['id'] for g in gaps) if gaps else None))
     store = PoolStore(out_dir/'ideation')
     snapshots = _rows(store.root/'elo_snapshots.jsonl')
     status = _read(out_dir/'status.json')

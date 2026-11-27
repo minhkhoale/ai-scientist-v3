@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: bash src/scripts/paper.sh [--agent claude|codex|cursor|opencode|gemini|pi] [--agent-model <name>] [--reasoning-effort low|medium|high|xhigh] [--task-dir <path>] [--results-dir <path>] [--ablations-dir <path>] [--posthoc-dir <path>] [--final-evaluation-dir <path>|--no-final-evaluation] [--final-outcome-policy qualified_only|allow_not_qualified] [--global-memory-dir <path>] [--output-dir <path>] [--manifest-dir <path>] [--resume-existing] [--instruct <path>] [--venue-file <path>] [--contributions-file <path>] [--skills <skill_a,skill_b,...>] [--paper-format <venue>] [--paper-min-refs <n>] [--paper-max-refs <n>] [--paper-max-repair-rounds <n>] [--paper-review-rounds <n>] [--two-stage] [--log-format human|json] [--verbose] [--heartbeat-seconds <n>] [--event-transport direct|wrapper] [--containerize] [--container-image <name>] [--container-network <mode>] [--container-auth-root <path>] [--container-env-file <path>]
+# Usage: bash src/scripts/paper.sh [--agent claude|codex|cursor|opencode|gemini|antigravity|pi] [--agent-model <name>] [--reasoning-effort low|medium|high|xhigh] [--task-dir <path>] [--results-dir <path>] [--ablations-dir <path>] [--posthoc-dir <path>] [--final-evaluation-dir <path>|--no-final-evaluation] [--final-outcome-policy qualified_only|allow_not_qualified] [--global-memory-dir <path>] [--output-dir <path>] [--manifest-dir <path>] [--resume-existing] [--instruct <path>] [--venue-file <path>] [--contributions-file <path>] [--skills <skill_a,skill_b,...>] [--paper-format <venue>] [--paper-min-refs <n>] [--paper-max-refs <n>] [--paper-max-repair-rounds <n>] [--paper-review-rounds <n>] [--two-stage] [--log-format human|json] [--verbose] [--heartbeat-seconds <n>] [--event-transport direct|wrapper] [--containerize] [--container-image <name>] [--container-network <mode>] [--container-auth-root <path>] [--container-env-file <path>]
 
 set -euo pipefail
 
@@ -224,7 +224,7 @@ while [[ $# -gt 0 ]]; do
       CONTAINER_ENV_FILE_SET=x
       shift 2
       ;;
-    claude|codex|cursor|opencode|gemini|pi)
+    claude|codex|cursor|opencode|gemini|antigravity|pi)
       AGENT="$1"
       shift
       ;;
@@ -1020,6 +1020,7 @@ case "$AGENT" in
   cursor) AGENT_CONFIG_DIR=".cursor" ;;
   opencode) AGENT_CONFIG_DIR=".opencode" ;;
   gemini) AGENT_CONFIG_DIR=".gemini" ;;
+  antigravity) AGENT_CONFIG_DIR=".gemini/antigravity-cli" ;;
   pi) AGENT_CONFIG_DIR=".pi/agent" ;;
   *)
     echo "Unsupported agent: $AGENT" >&2
@@ -1027,7 +1028,11 @@ case "$AGENT" in
     ;;
 esac
 
-FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+if [ "$AGENT" = "antigravity" ]; then
+  FORMATTED_SKILLS_REL_DIR=".agents/skills"
+else
+  FORMATTED_SKILLS_REL_DIR="$AGENT_CONFIG_DIR/skills"
+fi
 INCLUDE_REVIEW_SKILL=0
 if [ "$PAPER_REVIEW_ROUNDS" -gt 0 ]; then
   INCLUDE_REVIEW_SKILL=1

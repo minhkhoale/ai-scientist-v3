@@ -42,6 +42,8 @@ SKILL_PARTS = [
     (".cursor", "skills"),
     (".opencode", "skills"),
     (".gemini", "skills"),
+    (".gemini", "antigravity-cli", "skills"),
+    (".agents", "skills"),
     (".pi", "agent", "skills"),
 ]
 PASS_CONTRACT = (
