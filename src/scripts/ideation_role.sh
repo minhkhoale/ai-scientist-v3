@@ -34,7 +34,20 @@ OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 PROMPT="$(cat "$PROMPT_FILE")"
 write_agent_prompt_file "$OUTPUT_DIR/prompt.md" "$PROMPT"
 LOG_FILE="$OUTPUT_DIR/agent.log"
+# Host Codex role calls run under a minimal home without the user's skills, plugins and hooks.
+ROLE_USER_HOME="$HOME"
+ROLE_HOME=""
+if [ "$AGENT" = "codex" ] && [ "$CONTAINERIZE" -eq 0 ] && [ "${AGSCI_ROLE_HOME:-}" != "off" ]; then
+  ROLE_HOME="$("$PYTHON_BIN" "$SCRIPT_DIR/lib/role_home.py" prepare "$ROLE_USER_HOME" "${AGSCI_ROLE_HOME:-$ROLE_USER_HOME/.cache/agsci-role-home}" "${CODEX_HOME:-$ROLE_USER_HOME/.codex}")"
+fi
 AGENT_PID=""
+cleanup_role_home() {
+  if [ -n "$ROLE_HOME" ]; then
+    "$PYTHON_BIN" "$SCRIPT_DIR/lib/role_home.py" finish "$ROLE_USER_HOME" "$ROLE_HOME" || echo "[ideation_role] role home cleanup failed" >&2
+    ROLE_HOME=""
+  fi
+}
+trap cleanup_role_home EXIT
 on_interrupt() {
   trap - INT TERM
   if [ -n "$AGENT_PID" ]; then terminate_pid_tree "$AGENT_PID" 0.2 || true; fi
@@ -48,12 +61,14 @@ trap on_interrupt INT TERM
     exec {AGENTIC_TASK_FAILURE_FD}>&-
     unset AGENTIC_TASK_FAILURE_FD
   fi
+  if [ -n "$ROLE_HOME" ]; then export HOME="$ROLE_HOME" CODEX_HOME="$ROLE_HOME/.codex"; fi
   AGENT_PROMPT_FILE=prompt.md run_agent_prompt "$AGENT" "$PROMPT" "$AGENT_MODEL" "" "$OUTPUT_DIR" "$CONTAINERIZE" "$CONTAINER_IMAGE" "$CONTAINER_NETWORK" "$CONTAINER_AUTH_ROOT" "$CONTAINER_ENV_FILE" "$OUTPUT_DIR" "$CONTAINER_SESSION_NAME"
 ) > "$LOG_FILE" 2>&1 &
 AGENT_PID=$!
 status=0
 wait "$AGENT_PID" || status=$?
 AGENT_PID=""
+cleanup_role_home
 record_headless_cost_log "$PYTHON_BIN" "$LOG_FILE" ideation_role "$OUTPUT_DIR" "$(headless_cost_status "$status" 0)"
 [ "$status" -eq 0 ] || exit "$status"
 PYTHONPATH="$SCRIPT_DIR/..${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$LOG_FILE" "$OUTPUT_DIR/$EXPECTED_OUTPUT" <<'PY'
