@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 from typing import Callable
 from .roles import RoleName, OUTPUT_FILE
 
@@ -29,7 +30,9 @@ class ContainerOptions:
 
 
 def _run(cmd: list[str], timeout: int) -> int:
-    with subprocess.Popen(cmd,start_new_session=True) as process:
+    env = dict(os.environ)
+    env.setdefault('WRAPPER_PYTHON', sys.executable)
+    with subprocess.Popen(cmd,start_new_session=True,env=env) as process:
         try:
             return process.wait(timeout=timeout)
         except BaseException:

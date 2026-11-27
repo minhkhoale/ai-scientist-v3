@@ -203,3 +203,38 @@ numeric falsifier, then reflects it and selects it before ordinary Elo-ranked
 candidates. Conversion and reflection resume from cached steps. Once the seeds
 are consumed, normal tournament rounds resume. The default backend does not
 accept `seed_proposals`; its default is `null`.
+
+## Minimal Codex homes for role calls
+
+Native Codex roles (including proposal and research-discovery roles) use a fresh,
+private home under `$HOME/.cache/agsci-role-home/` for each invocation. This avoids
+loading the interactive home's skills, plugins, MCP servers and hooks. Model and
+provider configuration, HTTP settings, and supported sandbox/environment policies
+are retained; a selected profile's supported settings are flattened into the role
+configuration. Unknown custom configuration keys are not copied. Workspace-level
+instructions are not disabled by this change.
+
+Before every call, `auth.json` is copied from `${CODEX_HOME:-$HOME/.codex}` into the
+new home. Both `HOME` and `CODEX_HOME` point at that isolated copy during the call.
+Directories are owner-only (0700), copied files are 0600, parallel calls do not
+share credentials, and the existing npm cache is reused. No user config or auth
+file is overwritten. Unchanged homes are removed on success, failure and handled
+interrupts; SIGKILL cannot trigger cleanup.
+
+If Codex refreshes credentials, the private role home is retained and a warning
+prints its path. The refreshed credentials are **not** automatically written back
+or reused by subsequent calls: those still copy the current user credentials.
+For accounts requiring rotating refresh tokens across long runs, opt out until
+credential synchronization is explicitly enabled through a separate workflow.
+File-backed auth and inherited API-key environment variables are supported;
+keyring-only setups and unusual configs may need the opt-out as well.
+
+- `AGSCI_ROLE_HOME=/private/path` selects the parent directory for fresh role homes.
+- `AGSCI_ROLE_HOME=off` preserves the normal interactive home and config.
+- Other agent backends and containerized role launches are unchanged.
+- The Python runner selects its own interpreter for shell helpers by default;
+  an explicit `WRAPPER_PYTHON` override is still honored (Python 3.11+ is required).
+
+A previous tiny-call comparison measured 3,797 fewer input tokens with a minimal
+home. That is not an end-to-end savings or scientific-quality benchmark of this
+integration.
